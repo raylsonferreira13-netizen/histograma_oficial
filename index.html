@@ -41,6 +41,19 @@ button,input,select{font-family:inherit;font-size:13px}
 .side-btn{display:flex;align-items:center;gap:8px;background:#1C1C20;border:1px solid #2E2E34;color:#E4E4E7;border-radius:9px;padding:9px 11px;font-weight:700;cursor:pointer;font-size:13px}
 .side-btn:hover{border-color:var(--or);color:var(--or)}
 .side-note{font-size:11px;color:#A1A1AA;line-height:1.4}
+.side-nav .badge{margin-left:auto;background:var(--or);color:#fff;font-style:normal;font-size:10px;font-weight:900;border-radius:999px;padding:1px 7px}
+.cfg-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px}
+.cfg-grid .card{margin:0;display:flex;flex-direction:column}
+.cfg-txt{font-size:13px;color:#374151;line-height:1.55;flex:1}
+.cfg-txt a{color:var(--or2);word-break:break-all}
+.cfg-acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.av-sec{margin-bottom:14px}
+.av-item{display:flex;gap:10px;align-items:flex-start;padding:9px 12px;border-bottom:1px solid var(--line2);font-size:13px}
+.av-item:last-child{border-bottom:0}
+.av-item .btn{margin-left:8px}
+.av-item .ic{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:900;flex:none;background:#E0F2FE;color:#075985}
+.av-item.warn .ic{background:#FEF3C7;color:#92400E}.av-item.err .ic{background:#FEE2E2;color:#991B1B}.av-item.ok .ic{background:#DCFCE7;color:#166534}
+.av-item .tm{margin-left:auto;color:var(--mut);font-size:11px;white-space:nowrap}
 .side-note b{color:var(--or)}
 .content{min-width:0;display:flex;flex-direction:column}
 .topbar{background:var(--bk);color:#fff;display:flex;align-items:center;gap:12px;padding:12px 22px;position:sticky;top:0;z-index:40;border-bottom:3px solid var(--or)}
@@ -54,6 +67,7 @@ button,input,select{font-family:inherit;font-size:13px}
 .sync.ok .dot{background:var(--ok)} .sync.chg{background:#FFF7ED} .sync.chg .dot{background:var(--or);box-shadow:0 0 0 4px rgba(247,147,30,.2)} .sync.err{background:#FEF2F2} .sync.err .dot{background:var(--err)}
 .sync.load .dot{animation:pulse 1s infinite}@keyframes pulse{50%{opacity:.3}}
 .sync .acts{margin-left:auto;display:flex;gap:6px}
+.sync.err{padding-top:6px;padding-bottom:6px}
 .notice{background:var(--or-soft);color:#7C3E00;border-bottom:1px solid #FBD9B0;padding:7px 22px;font-size:12px;display:flex;gap:8px;align-items:center}
 .notice b{color:#5C2E00}
 main{max-width:1560px;width:100%;margin:0 auto;padding:18px 22px 28px}
@@ -302,28 +316,45 @@ td.num{font-variant-numeric:tabular-nums;font-weight:700}
     <button data-tab="labor" class="on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><circle cx="17" cy="9" r="2.6"/><path d="M15.5 14.2c3 .2 5.5 2.6 5.5 5.8"/></svg><span>Mão de obra</span></button>
     <button data-tab="equip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 17V11h7l2 3h4v3"/><path d="M9 11V7h4l3 4"/><path d="M15 14l4-6 3 1-2 5"/><circle cx="6" cy="18" r="2"/><circle cx="13" cy="18" r="2"/></svg><span>Equipamentos</span></button>
     <button data-tab="resumo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg><span>Resumo</span></button>
+    <div class="cap" style="margin-top:10px">Sistema</div>
+    <button data-tab="config"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg><span>Configurações</span></button>
+    <button data-tab="avisos"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg><span>Avisos</span><i class="badge" id="avisosBadge" hidden></i></button>
   </nav>
   <div class="side-foot">
     <button class="side-btn" id="btnSync" style="border-color:#7C3E00">⟳ Sincronizar planilha</button>
-    <button class="side-btn" id="btnSyncCfg">⚙ Conexão com a planilha</button>
-    <button class="side-btn" data-db="cfg">🗄 Banco de dados</button>
-    <button class="side-btn" id="btnBackup">⬇ Baixar backup</button>
-    <button class="side-btn" id="btnRestore">⬆ Restaurar backup</button>
-    <div class="side-note"><span id="sideLocal">Dados salvos <b>somente neste navegador/dispositivo</b>. Baixe o backup regularmente.</span><div id="storeUse" style="margin-top:6px"></div><div id="dbStatus" style="margin-top:8px;line-height:1.45"></div></div>
+    <div class="side-note" id="sideMini"></div>
   </div>
 </aside>
 <div class="content">
 <header class="topbar">
   <div class="logo-m" id="logoBoxM"></div>
   <div class="crumb"><span>Controle de Histogramas</span><b id="pageTitle">Mão de obra</b></div>
-  <div class="top-actions"><button class="btn" data-db="cfg" title="Banco de dados">🗄</button><button class="btn" id="btnBackupM" title="Baixar backup">⬇</button><button class="btn" id="btnRestoreM" title="Restaurar backup">⬆</button></div>
+  <div class="top-actions"><button class="btn" id="btnSyncM" title="Sincronizar planilha">⟳</button></div>
 </header>
 <div id="syncBar"></div>
-<div class="notice">ⓘ <span>Os lançamentos ficam salvos <b>somente neste navegador/dispositivo</b> (armazenamento local). A planilha conectada é só lida (nada é gravado nela). Use <b>Baixar backup</b> regularmente.</span></div>
 <main>
   <section class="tab on" id="tab-labor"></section>
   <section class="tab" id="tab-equip"></section>
   <section class="tab" id="tab-resumo"></section>
+  <section class="tab" id="tab-config">
+    <div class="toolbar"><div><h2>Configurações</h2><div class="sub">Conexões, dados e backup do aplicativo</div></div></div>
+    <div class="cfg-grid">
+      <div class="card"><div class="card-h"><h3>📄 Planilha conectada</h3></div><div id="cfgSheet" class="cfg-txt"></div>
+        <div class="cfg-acts"><button class="btn primary" id="btnSync2">⟳ Sincronizar agora</button><button class="btn" id="btnSyncCfg">⚙ Conexão com a planilha</button></div></div>
+      <div class="card"><div class="card-h"><h3>🗄 Banco de dados</h3></div><div id="dbStatus" class="cfg-txt"></div>
+        <div class="cfg-acts"><button class="btn" data-db="cfg">🗄 Banco de dados</button></div></div>
+      <div class="card"><div class="card-h"><h3>💾 Backup</h3></div><div class="cfg-txt">Cópia de segurança de todos os cadastros, semanas e lançamentos manuais (arquivo .json). Restaurar substitui os dados atuais, com confirmação.</div>
+        <div class="cfg-acts"><button class="btn" id="btnBackup">⬇ Baixar backup</button><button class="btn" id="btnRestore">⬆ Restaurar backup</button></div></div>
+      <div class="card"><div class="card-h"><h3>📦 Armazenamento</h3></div><div class="cfg-txt"><span id="sideLocal">Dados salvos <b>somente neste navegador/dispositivo</b>. Baixe o backup regularmente.</span><div id="storeUse" style="margin-top:6px"></div></div></div>
+      <div class="card"><div class="card-h"><h3>🖼 Logo</h3></div><div class="cfg-txt">Logo exibido no menu, no celular e nos relatórios PDF. A troca vale para este navegador.</div>
+        <div class="cfg-acts"><button class="btn" id="btnLogo">Alterar logo</button><button class="btn ghost" id="btnLogoReset">Voltar ao logo COSAMPA</button></div></div>
+    </div>
+  </section>
+  <section class="tab" id="tab-avisos">
+    <div class="toolbar"><div><h2>Avisos</h2><div class="sub">Mensagens e orientações do aplicativo, registradas aqui para não ocupar as telas de trabalho</div></div>
+      <div class="acts"><button class="btn" id="btnClearLog">Limpar histórico</button></div></div>
+    <div id="avisosBody"></div>
+  </section>
 </main>
 </div>
 </div>
@@ -412,7 +443,11 @@ function wrapText(str, max = 14, lines = 3){
   if (out.length > lines) { const keep = out.slice(0, lines); keep[lines-1] = keep[lines-1].slice(0, max-1) + '…'; return keep; }
   return out;
 }
-function toast(msg, type = ''){ const t = document.createElement('div'); t.className = 'toast ' + type; t.textContent = msg; $('#toasts').appendChild(t); setTimeout(() => t.remove(), type === 'err' ? 7000 : 4000); }
+const LS_LOG = 'cosampa_histogramas_avisos';
+const Log = { items: (() => { try { return JSON.parse(localStorage.getItem(LS_LOG) || '[]'); } catch (e) { return []; } })(), unread: 0,
+  add(msg, type){ this.items.unshift({t: new Date().toISOString(), msg, type}); this.items = this.items.slice(0, 200); this.unread++; try { localStorage.setItem(LS_LOG, JSON.stringify(this.items)); } catch (e) {} if (typeof updateBadge === 'function') updateBadge(); if (typeof UI !== 'undefined' && UI.tab === 'avisos') renderAvisos(); },
+  clear(){ this.items = []; this.unread = 0; try { localStorage.removeItem(LS_LOG); } catch (e) {} } };
+function toast(msg, type = ''){ Log.add(msg, type); const t = document.createElement('div'); t.className = 'toast ' + type; t.textContent = msg; $('#toasts').appendChild(t); setTimeout(() => t.remove(), type === 'err' ? 7000 : 4000); }
 function download(name, blob){ const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500); }
 const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 function countUp(el, to, dur = 850){
@@ -609,15 +644,15 @@ async function reloadFromDb(silent){
   catch (e) { if (/sessão|entre novamente|refresh|invalid/i.test(e.message)) { DB.saveSess(null); showLogin('Sua sessão expirou. Entre novamente.'); } else toast('Erro ao ler o banco: ' + e.message, 'err'); paintDbStatus(e.message); return false; }
 }
 function paintDbStatus(err){
-  const el = document.getElementById('dbStatus'); if (!el) return;
+  const el = document.getElementById('dbStatus'); if (!el) return; paintSideMini(err);
   const st = document.getElementById('storeUse'); const nt = document.querySelector('.notice span');
   if (Repo.mode === 'db') {
     const saving = DB.pending > 0;
-    el.innerHTML = `<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px"><span style="width:8px;height:8px;border-radius:50%;background:${err ? '#EF4444' : saving ? '#F7931E' : '#22C55E'}"></span><b style="color:#fff">Banco compartilhado</b></div>${esc((DB.sess && DB.sess.email) || '')}<br>${err ? `<span style="color:#FCA5A5">${esc(err)}</span>` : saving ? 'Salvando no banco…' : 'Tudo salvo no banco'} · <a href="#" data-db="reload" style="color:var(--or)">recarregar</a> · <a href="#" data-db="logout" style="color:var(--or)">sair</a>`;
+    el.innerHTML = `<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px"><span style="width:8px;height:8px;border-radius:50%;background:${err ? '#EF4444' : saving ? '#F7931E' : '#22C55E'}"></span><b>Banco compartilhado</b></div>Conectado como <b>${esc((DB.sess && DB.sess.email) || '')}</b><br>${err ? `<span style="color:#FCA5A5">${esc(err)}</span>` : saving ? 'Salvando no banco…' : 'Tudo salvo no banco'} · <a href="#" data-db="reload">recarregar</a> · <a href="#" data-db="logout">sair</a>`;
     if (st) st.style.display = 'none'; const sl = document.getElementById('sideLocal'); if (sl) sl.style.display = 'none';
     if (nt) nt.innerHTML = `Dados salvos no <b>banco compartilhado</b> (Supabase) — todos os usuários autorizados veem as mesmas informações. A planilha conectada é só lida.`;
   } else {
-    el.innerHTML = `<b style="color:#fff">Modo local</b> — dados só neste navegador. <a href="#" data-db="cfg" style="color:var(--or)">Conectar banco</a>`;
+    el.innerHTML = `<b>Modo local</b> — dados só neste navegador. <a href="#" data-db="cfg">Conectar banco</a>`;
     if (st) st.style.display = ''; const sl = document.getElementById('sideLocal'); if (sl) sl.style.display = '';
     if (nt) nt.innerHTML = `Os lançamentos ficam salvos <b>somente neste navegador/dispositivo</b> (armazenamento local). A planilha conectada é só lida (nada é gravado nela). Use <b>Baixar backup</b> regularmente.`;
   }
@@ -1342,6 +1377,17 @@ function renderHist(kind, model){
   const inner = $('.chart-inner', sec), leg = $('[data-leg]', sec);
   const modeName = {obra: 'por obra', semanaobra: model.obras.length === 1 ? 'evolução semanal da obra' : 'por semana e obra (cada obra separada)'}[model.mode];
   $('[data-hint]', sec).textContent = `Efetivo no fechamento · ${modeName}`;
+  $('[data-note]', sec).innerHTML = ''; updateBadge();
+  if (!model.groups.length) { leg.innerHTML = ''; inner.style.width = '100%'; inner.innerHTML = '<div class="empty"><b>Nenhum dado para os filtros</b>Cadastre, importe ou ajuste os filtros.</div>'; return; }
+  inner.innerHTML = '<canvas></canvas>';
+  const wrapW0 = ($('.chart-scroll', sec).clientWidth || 800) - 2;
+  const n0 = model.groups.length, natural0 = n0 * perGroupWidth(model) + 60, comfy0 = n0 * (model.datasets.length * 58 + 64) + 90;
+  inner.style.width = (natural0 >= wrapW0 ? natural0 : Math.max(Math.min(wrapW0, comfy0), Math.min(wrapW0, 620))) + 'px';
+  charts[id] = new Chart($('canvas', inner), barConfig(model));
+  leg.innerHTML = legendHTML(model.datasets); bindLegend(leg, id);
+}
+/** Mensagens/orientações do histograma (exibidas na página Avisos) */
+function histNotes(kind, model){
   const notes = [];
   if (model.note) notes.push(model.note);
   if (model.mnotes.length) notes.push(`${model.mnotes.length} lançamento(s) sem detalhamento não entram no filtro de categoria (categorias desconhecidas).`);
@@ -1349,15 +1395,7 @@ function renderHist(kind, model){
   const f = UI.f[kind]; let extra = '';
   if (f.basis === 'datas') extra = `<div class="alert warn" style="padding:6px 10px;font-size:12px">Semanas sem fotografia importada foram <b>reconstruídas pelas datas</b> (${kind === 'labor' ? 'admissão/demissão' : 'mobilização/desmobilização'}) — barras mais claras e marcadas com “est.”. Quem saiu da obra e não consta em nenhuma fotografia não pode ser contado.</div>`;
   else { const miss = missingWeeksHint(kind, f); if (miss.length) extra = `<div class="alert warn" style="padding:7px 10px;font-size:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span>${miss.length === 1 ? `<b>${esc(miss[0].label)}</b> tem fotografia em ${miss[0].snaps} semana(s), mas há ${kind === 'labor' ? 'admissões' : 'mobilizações'} desde ${esc(weekShort(miss[0].first))}` : `<b>${miss.length} obras</b> têm semanas sem fotografia importada`}. O histograma mostra somente as semanas importadas.</span><button class="btn sm primary" data-basis="datas">Ver semana a semana pelas datas</button></div>`; }
-  $('[data-note]', sec).innerHTML = extra + notes.map(n => `<div class="alert info" style="padding:6px 10px;font-size:12px">${esc(n)}</div>`).join('');
-  const bb = $('[data-basis]', sec); if (bb) bb.onclick = () => { f.basis = 'datas'; $(`#tab-${kind} [data-f=basis]`).value = 'datas'; renderKind(kind); };
-  if (!model.groups.length) { leg.innerHTML = ''; inner.style.width = '100%'; inner.innerHTML = '<div class="empty"><b>Nenhum dado para os filtros</b>Cadastre, importe ou ajuste os filtros.</div>'; return; }
-  inner.innerHTML = '<canvas></canvas>';
-  const wrapW = ($('.chart-scroll', sec).clientWidth || 800) - 2;
-  const n = model.groups.length, natural = n * perGroupWidth(model) + 60, comfy = n * (model.datasets.length * 58 + 64) + 90;
-  inner.style.width = (natural >= wrapW ? natural : Math.max(Math.min(wrapW, comfy), Math.min(wrapW, 620))) + 'px';
-  charts[id] = new Chart($('canvas', inner), barConfig(model));
-  leg.innerHTML = legendHTML(model.datasets); bindLegend(leg, id);
+  return {extra, notes};
 }
 function renderKindJourney(kind, model){
   const f = UI.f[kind]; const box = $(`#tab-${kind} [data-journey]`);
@@ -2145,11 +2183,12 @@ const Sync = {
       this.paint();
       if (manual) { const sm = this.summarize(this.wb); if (['labor', 'equip'].some(k => sm[k] && (sm[k].novos || sm[k].alterados || sm[k].pend))) this.review(); else toast('O app já está igual à planilha.', 'ok'); }
     } catch (e) {
-      this.bar('err', `<b>Não foi possível ler a planilha conectada</b> — ${esc(e.message)} Sem acesso pelo link, use “Importar planilha” com o arquivo .xlsx baixado.`, `<button class="btn sm" data-sync="run">Tentar de novo</button><button class="btn sm" data-sync="cfg">Conexão</button>`);
+      Log.add('Não foi possível ler a planilha conectada — ' + e.message + ' Sem acesso pelo link, use “Importar planilha” com o arquivo .xlsx baixado.', 'err');
+      this.bar('err', `<b>Planilha não conectada</b> · <a href="#" data-sync="avisos" style="color:inherit">ver detalhes em Avisos</a>`, `<button class="btn sm" data-sync="run">Tentar de novo</button><button class="btn sm" data-sync="cfg">Conexão</button>`);
     } finally { this.busy = false; }
   },
   paint(){
-    if (!this.wb) return;
+    if (!this.wb) return; if (UI.tab === 'config') renderConfig();
     const sm = this.summarize(this.wb); const hh = this.at.toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'});
     const part = k => { const x = sm[k]; const nm = k === 'labor' ? 'MO' : 'Equipamento'; if (!x) return `aba ${nm}: não encontrada`; const bits = []; if (x.novos) bits.push(`<b>${x.novos} novo(s)</b>`); if (x.alterados) bits.push(`<b>${x.alterados} alterado(s)</b>`); if (x.pend) bits.push(`${x.pend} com erro`); return `aba ${nm}: ${bits.length ? bits.join(', ') : 'sem novidades'}`; };
     const chg = ['labor', 'equip'].some(k => sm[k] && (sm[k].novos || sm[k].alterados));
@@ -2173,14 +2212,55 @@ const Sync = {
     $('[data-ok]', md.el).onclick = () => { const n = {url: $('[data-c=url]', md.el).value.trim(), gidL: $('[data-c=gidL]', md.el).value.trim(), gidE: $('[data-c=gidE]', md.el).value.trim(), auto: $('[data-c=auto]', md.el).checked}; saveSheetCfg(n); md.close(); this.run(true); };
   }
 };
-document.addEventListener('click', e => { const b = e.target.closest('[data-sync]'); if (!b) return; const a = b.dataset.sync; if (a === 'run') Sync.run(true); else if (a === 'review') Sync.review(); else if (a === 'cfg') Sync.config(); });
+document.addEventListener('click', e => { const b = e.target.closest('[data-sync]'); if (!b) return; const a = b.dataset.sync; e.preventDefault(); if (a === 'run') Sync.run(true); else if (a === 'review') Sync.review(); else if (a === 'cfg') Sync.config(); else if (a === 'avisos') switchTab('avisos'); });
 function paintStorage(){ const el = document.getElementById('storeUse'); if (!el) return; const mb = Repo.lastBytes / 1048576; el.innerHTML = `Armazenamento usado: <b>${mb < 0.1 ? Math.max(1, Math.round(Repo.lastBytes / 1024)) + ' KB' : mb.toLocaleString('pt-BR', {maximumFractionDigits: 1}) + ' MB'}</b> de ~5 MB`; el.style.color = mb > 4 ? '#FCA5A5' : ''; }
 function paintLogo(){ $('#logoBox').innerHTML = logoHTML(false); $('#logoBoxM').innerHTML = logoHTML(false); }
 function refreshAll(){
-  if (UI.tab === 'resumo') renderResumo(); else renderKind(UI.tab);
+  if (UI.tab === 'resumo') renderResumo(); else if (UI.tab === 'config') renderConfig(); else if (UI.tab === 'avisos') renderAvisos(); else renderKind(UI.tab);
+  updateBadge();
+}
+function paintSideMini(err){
+  const el = document.getElementById('sideMini'); if (!el) return;
+  el.innerHTML = Repo.mode === 'db'
+    ? `<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:${err ? '#EF4444' : DB.pending ? '#F7931E' : '#22C55E'};margin-right:5px"></span>Banco compartilhado${DB.pending ? ' · salvando…' : ''}`
+    : `<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#A1A1AA;margin-right:5px"></span>Modo local (este navegador)`;
+}
+function renderConfig(){
+  const c = sheetCfg();
+  const short = c.url.length > 70 ? c.url.slice(0, 67) + '…' : c.url;
+  $('#cfgSheet').innerHTML = `Lê as abas <b>MO</b> e <b>Equipamento</b> (somente leitura — nada é gravado no Google Sheets).<br>Link: <a href="${esc(c.url)}" target="_blank" rel="noopener">${esc(short)}</a><br>Leitura automática ao abrir: <b>${c.auto ? 'ligada' : 'desligada'}</b>${Sync.at ? `<br>Última leitura: <b>${Sync.at.toLocaleString('pt-BR')}</b>` : ''}`;
+  paintDbStatus(); paintStorage();
+}
+function avisosAtuais(){
+  const out = [];
+  out.push({type: Repo.mode === 'db' ? 'ok' : 'info', msg: Repo.mode === 'db' ? 'Os lançamentos são salvos no banco compartilhado (Supabase); todos os usuários autorizados veem as mesmas informações. A planilha conectada é só lida.' : 'Os lançamentos ficam salvos somente neste navegador/dispositivo (armazenamento local). A planilha conectada é só lida (nada é gravado nela). Use “Baixar backup” regularmente.'});
+  for (const kind of ['labor', 'equip']) {
+    const model = UI._last[kind] || histogramModel(kind, UI.f[kind], UI.mode[kind]);
+    const hn = histNotes(kind, model);
+    if (hn.extra) out.push({type: 'warn', kind, html: hn.extra.replace(/^<div[^>]*>|<\/div>$/g, '')});
+    hn.notes.forEach(n => out.push({type: 'info', kind, msg: n}));
+  }
+  return out;
+}
+function updateBadge(){
+  const b = document.getElementById('avisosBadge'); if (!b) return;
+  const n = (typeof UI !== 'undefined' && UI.tab === 'avisos') ? 0 : Log.unread;
+  b.hidden = !n; b.textContent = n > 99 ? '99+' : n;
+}
+function renderAvisos(){
+  Log.unread = 0; updateBadge();
+  const ic = t => t === 'warn' ? '!' : t === 'err' ? '×' : t === 'ok' ? '✓' : 'i';
+  const cur = avisosAtuais();
+  const lbl = k => k ? `<span class="chip" style="margin-right:6px">${KINDS[k].title}</span>` : '';
+  $('#avisosBody').innerHTML = `
+    <div class="card av-sec"><div class="card-h"><h3>Orientações atuais</h3><span class="hint">Atualizadas conforme os dados e os filtros de cada aba</span></div>
+      ${cur.map(a => `<div class="av-item ${a.type}"><span class="ic">${ic(a.type)}</span><div>${lbl(a.kind)}${a.html || esc(a.msg)}</div></div>`).join('')}</div>
+    <div class="card av-sec"><div class="card-h"><h3>Histórico de mensagens</h3><span class="hint">Últimas ${Log.items.length} mensagens exibidas pelo aplicativo neste navegador</span></div>
+      ${Log.items.length ? Log.items.map(a => `<div class="av-item ${a.type || 'info'}"><span class="ic">${ic(a.type)}</span><div>${esc(a.msg)}</div><span class="tm">${new Date(a.t).toLocaleString('pt-BR')}</span></div>`).join('') : '<div class="muted" style="font-size:13px">Nenhuma mensagem registrada.</div>'}</div>`;
+  $$('#avisosBody [data-basis]').forEach(b => { const box = b.closest('.av-item'); const kind = box && box.querySelector('.chip') && box.querySelector('.chip').textContent === 'Equipamentos' ? 'equip' : 'labor'; b.onclick = () => { UI.f[kind].basis = 'datas'; const sel = $(`#tab-${kind} [data-f=basis]`); if (sel) sel.value = 'datas'; switchTab(kind); }; });
 }
 function switchTab(t){
-  UI.tab = t; $('#pageTitle').textContent = {labor: 'Mão de obra', equip: 'Equipamentos', resumo: 'Resumo'}[t]; window.scrollTo(0, 0); $$('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
+  UI.tab = t; $('#pageTitle').textContent = {labor: 'Mão de obra', equip: 'Equipamentos', resumo: 'Resumo', config: 'Configurações', avisos: 'Avisos'}[t]; window.scrollTo(0, 0); $$('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
   $$('.tab').forEach(s => s.classList.toggle('on', s.id === 'tab-' + t));
   refreshAll();
 }
@@ -2193,8 +2273,11 @@ function init(){
   setupChartDefaults();
   buildKindTab('labor'); buildKindTab('equip'); buildResumo();
   $('#tabs').onclick = e => { const b = e.target.closest('button[data-tab]'); if (b) switchTab(b.dataset.tab); };
-  $('#btnBackup').onclick = $('#btnBackupM').onclick = backup;
-  $('#btnRestoreM').onclick = $('#btnRestore').onclick = () => { $('#fileRestore').value = ''; $('#fileRestore').click(); };
+  $('#btnBackup').onclick = backup;
+  $('#btnClearLog').onclick = () => { Log.clear(); renderAvisos(); };
+  $('#btnLogo').onclick = () => $('#logoBox').click();
+  $('#btnLogoReset').onclick = () => { try { localStorage.removeItem(LS_LOGO); } catch (e) {} paintLogo(); toast('Logo COSAMPA restaurado.', 'ok'); };
+  $('#btnRestore').onclick = () => { $('#fileRestore').value = ''; $('#fileRestore').click(); };
   $('#fileRestore').onchange = e => e.target.files[0] && restore(e.target.files[0]);
   $('#logoBoxM').onclick = () => $('#logoBox').click();
   $('#logoBox').onclick = async () => {
@@ -2204,7 +2287,7 @@ function init(){
   $('#fileLogo').onchange = e => { const f = e.target.files[0]; if (!f) return; const rd = new FileReader(); rd.onload = () => { try { localStorage.setItem(LS_LOGO, rd.result); paintLogo(); toast('Logo atualizado (salvo neste navegador).', 'ok'); } catch (er) { toast('Imagem muito grande para salvar.', 'err'); } }; rd.readAsDataURL(f); };
   let rT; window.addEventListener('resize', () => { clearTimeout(rT); rT = setTimeout(() => { if (UI.tab !== 'resumo') renderHist(UI.tab, UI._last[UI.tab]); }, 250); });
   switchTab('labor');
-  $('#btnSync').onclick = () => Sync.run(true);
+  $('#btnSync').onclick = $('#btnSync2').onclick = $('#btnSyncM').onclick = () => Sync.run(true);
   $('#btnSyncCfg').onclick = () => Sync.config();
   // Dados: banco compartilhado (se configurado) ou armazenamento local
   DB.loadSess();
