@@ -1,4 +1,4 @@
-<!doctype html>
+'<!doctype html>
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8">
@@ -21,7 +21,7 @@ body{font-family:Arial,Helvetica,sans-serif;background:var(--bg);color:var(--tx)
 button,input,select{font-family:inherit;font-size:13px}
 /* ---------- layout: menu lateral ---------- */
 .app{display:grid;grid-template-columns:236px minmax(0,1fr);min-height:100vh}
-.side{background:var(--bk);color:#fff;position:sticky;top:0;height:100vh;display:flex;flex-direction:column;border-right:3px solid var(--or);z-index:45}
+.side{background:var(--bk);color:#fff;position:sticky;top:0;height:100vh;display:flex;flex-direction:column;overflow-y:auto;border-right:3px solid var(--or);z-index:45}
 .side-brand{padding:18px 18px 16px;border-bottom:1px solid #26262B}
 .logo{min-height:34px;display:flex;align-items:center;cursor:pointer}
 .logo img{height:auto;width:100%;max-width:180px;display:block}
@@ -306,16 +306,17 @@ td.num{font-variant-numeric:tabular-nums;font-weight:700}
   <div class="side-foot">
     <button class="side-btn" id="btnSync" style="border-color:#7C3E00">⟳ Sincronizar planilha</button>
     <button class="side-btn" id="btnSyncCfg">⚙ Conexão com a planilha</button>
+    <button class="side-btn" data-db="cfg">🗄 Banco de dados</button>
     <button class="side-btn" id="btnBackup">⬇ Baixar backup</button>
     <button class="side-btn" id="btnRestore">⬆ Restaurar backup</button>
-    <div class="side-note">Dados salvos <b>somente neste navegador/dispositivo</b>. Baixe o backup regularmente.<div id="storeUse" style="margin-top:6px"></div></div>
+    <div class="side-note"><span id="sideLocal">Dados salvos <b>somente neste navegador/dispositivo</b>. Baixe o backup regularmente.</span><div id="storeUse" style="margin-top:6px"></div><div id="dbStatus" style="margin-top:8px;line-height:1.45"></div></div>
   </div>
 </aside>
 <div class="content">
 <header class="topbar">
   <div class="logo-m" id="logoBoxM"></div>
   <div class="crumb"><span>Controle de Histogramas</span><b id="pageTitle">Mão de obra</b></div>
-  <div class="top-actions"><button class="btn" id="btnBackupM" title="Baixar backup">⬇</button><button class="btn" id="btnRestoreM" title="Restaurar backup">⬆</button></div>
+  <div class="top-actions"><button class="btn" data-db="cfg" title="Banco de dados">🗄</button><button class="btn" id="btnBackupM" title="Baixar backup">⬇</button><button class="btn" id="btnRestoreM" title="Restaurar backup">⬆</button></div>
 </header>
 <div id="syncBar"></div>
 <div class="notice">ⓘ <span>Os lançamentos ficam salvos <b>somente neste navegador/dispositivo</b> (armazenamento local). A planilha conectada é só lida (nada é gravado nela). Use <b>Baixar backup</b> regularmente.</span></div>
@@ -507,7 +508,9 @@ const Repo = {
   pack(kind){ const cols = this.cols(kind); return {cols, rows: this.data[kind].map(r => { const a = cols.map(c => r[c] == null || r[c] === '' ? null : r[c]); while (a.length && a[a.length - 1] === null) a.pop(); return a; })}; },
   unpack(t){ if (Array.isArray(t)) return t; if (!t || !Array.isArray(t.rows)) return []; return t.rows.map(a => { const o = {}; t.cols.forEach((c, i) => { if (a[i] != null) o[c] = a[i]; }); return o; }); },
   load(){ const d = this.adapter.read(); if (d && typeof d === 'object') this.data = {labor: this.unpack(d.labor), equip: this.unpack(d.equip), manual: this.unpack(d.manual)}; },
+  mode: 'local',
   save(){
+    if (this.mode === 'db') { DB.schedule(); return true; }
     try { const txt = JSON.stringify({version: 2, savedAt: new Date().toISOString(), labor: this.pack('labor'), equip: this.pack('equip'), manual: this.pack('manual')}); this.adapter.write(txt); this.lastBytes = txt.length * 2; paintStorage(); return true; }
     catch (e) { const full = /quota|exceed/i.test(e.name + ' ' + e.message); toast(full ? 'O armazenamento deste navegador está cheio — os dados NÃO foram salvos. Baixe um backup e exclua semanas antigas.' : 'Não foi possível salvar no navegador: ' + e.message, 'err'); return false; }
   },
@@ -515,6 +518,173 @@ const Repo = {
   tx(fn){ const snap = JSON.stringify(this.data); let out; try { out = fn(); } catch (e) { this.data = JSON.parse(snap); toast('Erro: ' + e.message, 'err'); return {ok: false}; } if (!this.save()) { this.data = JSON.parse(snap); return {ok: false}; } return {ok: true, out}; },
   replaceAll(d){ const old = this.data; this.data = {labor: d.labor, equip: d.equip, manual: d.manual}; if (!this.save()) { this.data = old; return false; } return true; }
 };
+
+/* =====================================================================
+   BANCO DE DADOS COMPARTILHADO (Supabase — REST + Auth, sem biblioteca extra)
+   Só a URL do projeto e a chave pública "anon" ficam no navegador. A proteção
+   dos dados é feita no banco (login + lista de e-mails autorizados + RLS).
+   ===================================================================== */
+// Opcional: preencha para que todos os usuários já abram o app conectado ao banco.
+const DB_DEFAULT = {url: '', key: ''};
+const LS_DB = 'cosampa_histogramas_db', LS_SESS = 'cosampa_histogramas_sessao';
+const TABLES = {labor: 'mao_de_obra', equip: 'equipamentos', manual: 'totais_manuais'};
+const MANUAL_COLS = {MOD: 'mod', MOI: 'moi', TER: 'ter', moTotal: 'mo_total', LA: 'la', LB: 'lb', PP: 'pp', eqTotal: 'eq_total'};
+const DB = {
+  sess: null, queue: Promise.resolve(), pending: 0, synced: null, lastOk: null,
+  cfg(){ try { const c = JSON.parse(localStorage.getItem(LS_DB) || 'null'); if (c && c.url && c.key) return c; } catch (e) {} return DB_DEFAULT.url && DB_DEFAULT.key ? DB_DEFAULT : null; },
+  setCfg(c){ try { c ? localStorage.setItem(LS_DB, JSON.stringify(c)) : localStorage.removeItem(LS_DB); } catch (e) {} },
+  loadSess(){ try { this.sess = JSON.parse(localStorage.getItem(LS_SESS) || 'null'); } catch (e) { this.sess = null; } },
+  saveSess(x){ this.sess = x; try { x ? localStorage.setItem(LS_SESS, JSON.stringify(x)) : localStorage.removeItem(LS_SESS); } catch (e) {} },
+  base(){ return this.cfg().url.trim().replace(/\/+$/, '').replace(/\/rest\/v1$/, ''); },
+  async auth(body, grant){
+    let r; try { r = await fetch(`${this.base()}/auth/v1/token?grant_type=${grant}`, {method: 'POST', headers: {apikey: this.cfg().key, 'Content-Type': 'application/json'}, body: JSON.stringify(body)}); }
+    catch (e) { throw new Error('não foi possível acessar o banco (verifique a URL e a internet)'); }
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) { const m = j.error_description || j.msg || j.message || ('HTTP ' + r.status); throw new Error(/invalid login|invalid_grant|credentials/i.test(m) ? 'e-mail ou senha incorretos' : m); }
+    this.saveSess({access: j.access_token, refresh: j.refresh_token, exp: Date.now() + (j.expires_in || 3600) * 1000 - 60000, email: (j.user && j.user.email) || (this.sess && this.sess.email) || body.email});
+  },
+  login(email, pw){ return this.auth({email, password: pw}, 'password'); },
+  async ensure(){ if (!this.sess) throw new Error('sessão expirada — entre novamente'); if (Date.now() > this.sess.exp) await this.auth({refresh_token: this.sess.refresh}, 'refresh_token'); },
+  logout(){ const x = this.sess; this.saveSess(null); if (x && this.cfg()) fetch(`${this.base()}/auth/v1/logout`, {method: 'POST', headers: {apikey: this.cfg().key, Authorization: 'Bearer ' + x.access}}).catch(() => {}); },
+  async req(method, path, body, extra = {}, retry = true){
+    await this.ensure();
+    let r; try { r = await fetch(`${this.base()}/rest/v1/${path}`, {method, headers: {apikey: this.cfg().key, Authorization: 'Bearer ' + this.sess.access, 'Content-Type': 'application/json', ...extra}, body: body ? JSON.stringify(body) : undefined}); }
+    catch (e) { throw new Error('sem conexão com o banco'); }
+    if (r.status === 401 && retry) { await this.auth({refresh_token: this.sess.refresh}, 'refresh_token'); return this.req(method, path, body, extra, false); }
+    if (!r.ok) { const j = await r.json().catch(() => ({})); const m = j.message || j.hint || ('HTTP ' + r.status); throw new Error(/row-level security/i.test(m) ? 'seu e-mail não está autorizado no banco (tabela usuarios_autorizados)' : /does not exist|schema cache/i.test(m) ? 'tabelas não encontradas — execute o script supabase_tabelas.sql no SQL Editor' : m); }
+    return method === 'GET' ? r.json() : null;
+  },
+  toRow(kind, r){
+    const o = {id: r.id};
+    if (kind === 'manual') { o.obra = r.obra ?? null; o.semana = r.semana ?? null; for (const [k, c] of Object.entries(MANUAL_COLS)) o[c] = r[k] == null || r[k] === '' ? null : Number(r[k]); }
+    else KINDS[kind].fields.forEach(f => o[f.k] = r[f.k] == null || r[f.k] === '' ? null : String(r[f.k]));
+    o.created_at = r.createdAt || null; o.updated_at = r.updatedAt || null; o.updated_by = (this.sess && this.sess.email) || null;
+    return o;
+  },
+  fromRow(kind, row){
+    const o = {id: row.id};
+    if (kind === 'manual') { o.obra = row.obra; o.semana = row.semana; for (const [k, c] of Object.entries(MANUAL_COLS)) o[k] = row[c] ?? null; }
+    else KINDS[kind].fields.forEach(f => { if (row[f.k] != null) o[f.k] = row[f.k]; });
+    if (row.created_at) o.createdAt = row.created_at; if (row.updated_at) o.updatedAt = row.updated_at;
+    return o;
+  },
+  async loadAll(){
+    const out = {};
+    for (const kind of ['labor', 'equip', 'manual']) {
+      const rows = [];
+      for (let off = 0; ; off += 1000) { const part = await this.req('GET', `${TABLES[kind]}?select=*&order=id&limit=1000&offset=${off}`); rows.push(...part); if (part.length < 1000) break; }
+      out[kind] = rows.map(r => this.fromRow(kind, r));
+    }
+    return out;
+  },
+  snapshot(data){ const x = {}; for (const k of ['labor', 'equip', 'manual']) x[k] = new Map(data[k].map(r => [r.id, JSON.stringify(r)])); return x; },
+  diff(){
+    const d = {}; let n = 0;
+    for (const k of ['labor', 'equip', 'manual']) {
+      const prev = this.synced[k]; const cur = new Map(Repo.data[k].map(r => [r.id, JSON.stringify(r)]));
+      const up = []; for (const [id, js] of cur) if (prev.get(id) !== js) up.push(JSON.parse(js));
+      const del = [...prev.keys()].filter(id => !cur.has(id));
+      d[k] = {up, del}; n += up.length + del.length;
+    }
+    return {d, n};
+  },
+  async push(d){
+    for (const k of ['labor', 'equip', 'manual']) {
+      const {up, del} = d[k];
+      for (let i = 0; i < up.length; i += 500) await this.req('POST', TABLES[k], up.slice(i, i + 500).map(r => this.toRow(k, r)), {Prefer: 'resolution=merge-duplicates,return=minimal'});
+      for (let i = 0; i < del.length; i += 100) await this.req('DELETE', `${TABLES[k]}?id=in.(${del.slice(i, i + 100).map(x => '"' + String(x).replace(/["(),]/g, '') + '"').join(',')})`);
+    }
+  },
+  /** Grava no banco só o que mudou (envios em fila, um de cada vez). Se falhar, recarrega do banco. */
+  schedule(){
+    if (!this.synced) return;
+    const {d, n} = this.diff(); if (!n) return;
+    this.synced = this.snapshot(Repo.data); this.pending++; paintDbStatus();
+    this.queue = this.queue.then(() => this.push(d)).then(() => { this.pending--; this.lastOk = new Date(); paintDbStatus(); })
+      .catch(async e => { this.pending--; toast('Não foi possível salvar no banco: ' + e.message + '. Os dados foram recarregados do banco.', 'err'); await reloadFromDb(); });
+  }
+};
+async function reloadFromDb(silent){
+  try { const d = await DB.loadAll(); Repo.data = d; DB.synced = DB.snapshot(d); paintDbStatus(); refreshAll(); if (!silent) toast('Dados atualizados do banco.', 'ok'); return true; }
+  catch (e) { if (/sessão|entre novamente|refresh|invalid/i.test(e.message)) { DB.saveSess(null); showLogin('Sua sessão expirou. Entre novamente.'); } else toast('Erro ao ler o banco: ' + e.message, 'err'); paintDbStatus(e.message); return false; }
+}
+function paintDbStatus(err){
+  const el = document.getElementById('dbStatus'); if (!el) return;
+  const st = document.getElementById('storeUse'); const nt = document.querySelector('.notice span');
+  if (Repo.mode === 'db') {
+    const saving = DB.pending > 0;
+    el.innerHTML = `<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px"><span style="width:8px;height:8px;border-radius:50%;background:${err ? '#EF4444' : saving ? '#F7931E' : '#22C55E'}"></span><b style="color:#fff">Banco compartilhado</b></div>${esc((DB.sess && DB.sess.email) || '')}<br>${err ? `<span style="color:#FCA5A5">${esc(err)}</span>` : saving ? 'Salvando no banco…' : 'Tudo salvo no banco'} · <a href="#" data-db="reload" style="color:var(--or)">recarregar</a> · <a href="#" data-db="logout" style="color:var(--or)">sair</a>`;
+    if (st) st.style.display = 'none'; const sl = document.getElementById('sideLocal'); if (sl) sl.style.display = 'none';
+    if (nt) nt.innerHTML = `Dados salvos no <b>banco compartilhado</b> (Supabase) — todos os usuários autorizados veem as mesmas informações. A planilha conectada é só lida.`;
+  } else {
+    el.innerHTML = `<b style="color:#fff">Modo local</b> — dados só neste navegador. <a href="#" data-db="cfg" style="color:var(--or)">Conectar banco</a>`;
+    if (st) st.style.display = ''; const sl = document.getElementById('sideLocal'); if (sl) sl.style.display = '';
+    if (nt) nt.innerHTML = `Os lançamentos ficam salvos <b>somente neste navegador/dispositivo</b> (armazenamento local). A planilha conectada é só lida (nada é gravado nela). Use <b>Baixar backup</b> regularmente.`;
+  }
+}
+function showLogin(msg){
+  if (document.getElementById('loginBg')) return;
+  const bg = document.createElement('div'); bg.className = 'modal-bg'; bg.id = 'loginBg'; bg.style.alignItems = 'center';
+  bg.innerHTML = `<div class="modal" style="max-width:400px"><div class="modal-h" style="justify-content:center;padding:18px"><img src="${getLogo() || LOGO_COSAMPA}" alt="Grupo COSAMPA" style="height:30px"></div>
+    <div class="modal-b"><h3 style="margin:0 0 4px">Controle de Histogramas</h3><p class="muted" style="margin:0 0 14px;font-size:13px">Entre com o usuário cadastrado no banco de dados.</p>
+      ${msg ? `<div class="alert warn" style="font-size:12px">${esc(msg)}</div>` : ''}
+      <form data-login><div class="fld"><span>E-mail</span><input type="email" name="email" autocomplete="username" required value="${esc((DB.sess && DB.sess.email) || '')}"></div>
+      <div class="fld" style="margin-top:10px"><span>Senha</span><input type="password" name="pw" autocomplete="current-password" required></div>
+      <div data-lerr></div>
+      <button class="btn primary" style="width:100%;justify-content:center;margin-top:14px;padding:10px">Entrar</button></form>
+      <div style="display:flex;justify-content:space-between;margin-top:14px;font-size:12px"><a href="#" data-db="cfg" style="color:var(--or2)">Configurar banco</a><a href="#" data-db="local" style="color:var(--mut)">Usar sem banco (só neste navegador)</a></div>
+    </div></div>`;
+  document.body.appendChild(bg);
+  $('[data-login]', bg).onsubmit = async ev => {
+    ev.preventDefault(); const f = ev.target; const b = $('button', f); b.disabled = true; b.textContent = 'Entrando…'; $('[data-lerr]', bg).innerHTML = '';
+    try { await DB.login(f.email.value.trim(), f.pw.value); bg.remove(); await enterDbMode(); }
+    catch (e) { $('[data-lerr]', bg).innerHTML = `<div class="alert err" style="margin-top:10px;font-size:12px">${esc(e.message)}</div>`; b.disabled = false; b.textContent = 'Entrar'; }
+  };
+  setTimeout(() => { const i = $(DB.sess && DB.sess.email ? 'input[name=pw]' : 'input[name=email]', bg); i && i.focus(); }, 50);
+}
+async function enterDbMode(){
+  Repo.mode = 'db'; paintDbStatus();
+  let d; try { d = await DB.loadAll(); }
+  catch (e) { paintDbStatus(e.message); toast('Erro ao ler o banco: ' + e.message, 'err'); if (/sessão|entre novamente/i.test(e.message)) { DB.saveSess(null); showLogin(e.message); } return false; }
+  Repo.data = d; DB.synced = DB.snapshot(d); paintDbStatus(); refreshAll();
+  // Migração: banco vazio e dados antigos neste navegador
+  const loc = LocalAdapter.read();
+  if (!d.labor.length && !d.equip.length && !d.manual.length && loc) {
+    const L = {labor: Repo.unpack(loc.labor), equip: Repo.unpack(loc.equip), manual: Repo.unpack(loc.manual)};
+    const n = L.labor.length + L.equip.length + L.manual.length;
+    if (n && await confirmBox('Enviar dados para o banco', `<p>O banco está vazio e este navegador tem <b>${L.labor.length}</b> cadastro(s) de mão de obra, <b>${L.equip.length}</b> de equipamentos e <b>${L.manual.length}</b> lançamento(s) manuais.</p><p>Deseja enviá-los para o banco compartilhado?</p>`, 'Enviar para o banco')) {
+      Repo.data = L; DB.schedule(); refreshAll(); toast('Enviando dados para o banco…');
+    }
+  }
+  Sync.auto();
+  return true;
+}
+function openDbConfig(){
+  const c = DB.cfg() || {url: '', key: ''};
+  const md = openModal({title: 'Banco de dados compartilhado (Supabase)', body: `
+    <div class="alert info" style="font-size:12px">No Supabase: <b>Project Settings → API</b> (ou <b>Data API / API Keys</b>). Copie a <b>Project URL</b> e a chave <b>anon public</b>. <b>Nunca</b> use a chave <i>service_role</i> nem a senha do banco aqui.</div>
+    <div class="fld"><span>Project URL</span><input data-c="url" placeholder="https://xxxx.supabase.co" value="${esc(c.url)}"></div>
+    <div class="fld" style="margin-top:10px"><span>Chave anon public</span><input data-c="key" placeholder="eyJhbGciOi…" value="${esc(c.key)}"></div>
+    <p class="muted" style="font-size:12px">Antes, execute o script <b>supabase_tabelas.sql</b> no SQL Editor do Supabase e crie os usuários em Authentication → Users.</p>`,
+    foot: `${Repo.mode === 'db' || DB.cfg() ? '<button class="btn danger" data-off style="margin-right:auto">Desconectar banco</button>' : ''}${Repo.mode === 'db' && DB.sess ? `<button class="btn" data-db="logout">Sair (${esc(DB.sess.email || '')})</button>` : ''}<button class="btn" data-x>Cancelar</button><button class="btn primary" data-ok>Salvar e entrar</button>`});
+  $('[data-x]', md.el).onclick = md.close;
+  const off = $('[data-off]', md.el); if (off) off.onclick = () => { DB.logout(); DB.setCfg(null); location.reload(); };
+  $('[data-ok]', md.el).onclick = () => {
+    const url = $('[data-c=url]', md.el).value.trim(), key = $('[data-c=key]', md.el).value.trim();
+    if (!/^https:\/\/[\w.-]+/.test(url) || key.length < 20) return toast('Informe a Project URL (https://…) e a chave anon public.', 'err');
+    if (/service_role/.test(atobSafe(key))) return toast('Esta é a chave service_role — use a chave anon public.', 'err');
+    DB.setCfg({url, key}); DB.saveSess(null); md.close(); const lb = document.getElementById('loginBg'); if (lb) lb.remove(); showLogin();
+  };
+}
+function atobSafe(k){ try { return atob(k.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')); } catch (e) { return ''; } }
+document.addEventListener('click', async e => {
+  const a = e.target.closest('[data-db]'); if (!a) return; e.preventDefault();
+  const act = a.dataset.db;
+  if (act === 'cfg') openDbConfig();
+  else if (act === 'reload') reloadFromDb();
+  else if (act === 'logout') { const mb = a.closest('.modal-bg'); if (mb) mb.remove(); if (DB.pending) return toast('Aguarde terminar de salvar no banco.', 'err'); DB.logout(); Repo.data = {labor: [], equip: [], manual: []}; DB.synced = null; refreshAll(); showLogin('Você saiu.'); }
+  else if (act === 'local') { const lb = document.getElementById('loginBg'); if (lb) lb.remove(); Repo.mode = 'local'; Repo.load(); paintDbStatus(); refreshAll(); toast('Modo local: dados só neste navegador.'); Sync.auto(); }
+});
 
 /* =====================================================================
    REGRAS DE NEGÓCIO
@@ -1877,7 +2047,7 @@ async function restore(file){
   if (!errs.length) {
     const nd = {labor: clean2('Mão de obra', data.labor), equip: clean2('Equipamentos', data.equip), manual: clean2('Totais', data.manual || [])};
     if (errs.length) return toast('Backup com problemas: ' + errs.slice(0, 3).join('; '), 'err');
-    const ok = await confirmBox('Restaurar backup', `<p>O backup contém <b>${nd.labor.length}</b> cadastro(s) de mão de obra, <b>${nd.equip.length}</b> de equipamentos e <b>${nd.manual.length}</b> lançamento(s) sem detalhamento${d.exportedAt ? `, gerado em ${new Date(d.exportedAt).toLocaleString('pt-BR')}` : ''}.</p><div class="alert warn"><b>Todos os dados atuais deste navegador serão substituídos.</b> Recomenda-se baixar um backup antes.</div>`, 'Substituir dados', true);
+    const ok = await confirmBox('Restaurar backup', `<p>O backup contém <b>${nd.labor.length}</b> cadastro(s) de mão de obra, <b>${nd.equip.length}</b> de equipamentos e <b>${nd.manual.length}</b> lançamento(s) sem detalhamento${d.exportedAt ? `, gerado em ${new Date(d.exportedAt).toLocaleString('pt-BR')}` : ''}.</p><div class="alert warn"><b>${Repo.mode === 'db' ? 'Todos os dados do BANCO COMPARTILHADO serão substituídos (para todos os usuários).' : 'Todos os dados atuais deste navegador serão substituídos.'}</b> Recomenda-se baixar um backup antes.</div>`, 'Substituir dados', true);
     if (!ok) return;
     if (Repo.replaceAll(nd)) { toast('Backup restaurado.', 'ok'); refreshAll(); }
   } else toast('Backup inválido: ' + errs.slice(0, 3).join('; '), 'err');
@@ -1988,6 +2158,7 @@ const Sync = {
   },
   review(){ if (this.wb) openImport(UI.tab === 'equip' ? 'equip' : 'labor', this.wb, `Planilha conectada (lida às ${this.at.toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'})})`); },
   markImported(){ setTimeout(() => this.paint(), 0); },
+  auto(){ if (sheetCfg().auto) this.run(false); else this.bar('', 'Planilha conectada — leitura automática desativada.', '<button class="btn sm" data-sync="run">⟳ Ler agora</button><button class="btn sm" data-sync="cfg">Conexão</button>'); },
   config(){
     const c = sheetCfg();
     const md = openModal({title: 'Conexão com a planilha', body: `
@@ -2014,7 +2185,7 @@ function switchTab(t){
   refreshAll();
 }
 function init(){
-  Repo.load(); try { Repo.lastBytes = (localStorage.getItem(LS_KEY) || '').length * 2; } catch (e) {} paintLogo(); paintStorage();
+  try { Repo.lastBytes = (localStorage.getItem(LS_KEY) || '').length * 2; } catch (e) {} paintLogo(); paintStorage();
   if (!libsOk()) {
     $('main').insertAdjacentHTML('afterbegin', '<div class="alert err">Não foi possível carregar as bibliotecas de gráficos/Excel (Chart.js e SheetJS). Verifique a conexão com a internet e recarregue a página. Seus dados continuam salvos neste navegador.</div>');
     return;
@@ -2035,7 +2206,12 @@ function init(){
   switchTab('labor');
   $('#btnSync').onclick = () => Sync.run(true);
   $('#btnSyncCfg').onclick = () => Sync.config();
-  if (sheetCfg().auto) Sync.run(false); else Sync.bar('', 'Planilha conectada — leitura automática desativada.', '<button class="btn sm" data-sync="run">⟳ Ler agora</button><button class="btn sm" data-sync="cfg">Conexão</button>');
+  // Dados: banco compartilhado (se configurado) ou armazenamento local
+  DB.loadSess();
+  if (DB.cfg()) { paintDbStatus(); if (DB.sess) enterDbMode(); else showLogin(); }
+  else { Repo.mode = 'local'; Repo.load(); paintDbStatus(); refreshAll(); Sync.auto(); }
+  window.addEventListener('beforeunload', e => { if (Repo.mode === 'db' && DB.pending) { e.preventDefault(); e.returnValue = ''; } });
+  let lastFocus = Date.now(); window.addEventListener('focus', () => { if (Repo.mode === 'db' && !DB.pending && Date.now() - lastFocus > 5 * 60000 && !document.querySelector('.modal-bg')) { lastFocus = Date.now(); reloadFromDb(true); } });
 }
 init();
 </script>
