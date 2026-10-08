@@ -1,4 +1,4 @@
-'<!doctype html>
+<!doctype html>
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8">
@@ -662,17 +662,17 @@ async function enterDbMode(){
 function openDbConfig(){
   const c = DB.cfg() || {url: '', key: ''};
   const md = openModal({title: 'Banco de dados compartilhado (Supabase)', body: `
-    <div class="alert info" style="font-size:12px">No Supabase: <b>Project Settings → API</b> (ou <b>Data API / API Keys</b>). Copie a <b>Project URL</b> e a chave <b>anon public</b>. <b>Nunca</b> use a chave <i>service_role</i> nem a senha do banco aqui.</div>
+    <div class="alert info" style="font-size:12px">No Supabase: <b>Project Settings → API</b> (ou <b>Data API / API Keys</b>). Copie a <b>Project URL</b> e a <b>Publishable key</b> (<i>sb_publishable_…</i>; em projetos antigos, a <i>anon public</i>). <b>Nunca</b> use a <i>Secret key</i> (<i>sb_secret_…</i>), a <i>service_role</i> nem a senha do banco.</div>
     <div class="fld"><span>Project URL</span><input data-c="url" placeholder="https://xxxx.supabase.co" value="${esc(c.url)}"></div>
-    <div class="fld" style="margin-top:10px"><span>Chave anon public</span><input data-c="key" placeholder="eyJhbGciOi…" value="${esc(c.key)}"></div>
+    <div class="fld" style="margin-top:10px"><span>Publishable key (ou anon public)</span><input data-c="key" placeholder="sb_publishable_…" value="${esc(c.key)}"></div>
     <p class="muted" style="font-size:12px">Antes, execute o script <b>supabase_tabelas.sql</b> no SQL Editor do Supabase e crie os usuários em Authentication → Users.</p>`,
     foot: `${Repo.mode === 'db' || DB.cfg() ? '<button class="btn danger" data-off style="margin-right:auto">Desconectar banco</button>' : ''}${Repo.mode === 'db' && DB.sess ? `<button class="btn" data-db="logout">Sair (${esc(DB.sess.email || '')})</button>` : ''}<button class="btn" data-x>Cancelar</button><button class="btn primary" data-ok>Salvar e entrar</button>`});
   $('[data-x]', md.el).onclick = md.close;
   const off = $('[data-off]', md.el); if (off) off.onclick = () => { DB.logout(); DB.setCfg(null); location.reload(); };
   $('[data-ok]', md.el).onclick = () => {
     const url = $('[data-c=url]', md.el).value.trim(), key = $('[data-c=key]', md.el).value.trim();
-    if (!/^https:\/\/[\w.-]+/.test(url) || key.length < 20) return toast('Informe a Project URL (https://…) e a chave anon public.', 'err');
-    if (/service_role/.test(atobSafe(key))) return toast('Esta é a chave service_role — use a chave anon public.', 'err');
+    if (!/^https:\/\/[\w.-]+/.test(url) || key.length < 20) return toast('Informe a Project URL (https://…) e a Publishable key.', 'err');
+    if (/^sb_secret_/i.test(key) || /service_role/.test(atobSafe(key))) return toast('Esta é uma chave SECRETA — não use no app. Copie a “Publishable key” (sb_publishable_…) ou a “anon public”.', 'err');
     DB.setCfg({url, key}); DB.saveSess(null); md.close(); const lb = document.getElementById('loginBg'); if (lb) lb.remove(); showLogin();
   };
 }
