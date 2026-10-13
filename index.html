@@ -345,7 +345,8 @@ td.num{font-variant-numeric:tabular-nums;font-weight:700}
         <div class="cfg-acts"><button class="btn" data-db="cfg">🗄 Banco de dados</button></div></div>
       <div class="card"><div class="card-h"><h3>💾 Backup</h3></div><div class="cfg-txt">Cópia de segurança de todos os cadastros, semanas e lançamentos manuais (arquivo .json). Restaurar substitui os dados atuais, com confirmação.</div>
         <div class="cfg-acts"><button class="btn" id="btnBackup">⬇ Baixar backup</button><button class="btn" id="btnRestore">⬆ Restaurar backup</button></div></div>
-      <div class="card"><div class="card-h"><h3>📦 Armazenamento</h3></div><div class="cfg-txt"><span id="sideLocal">Dados salvos <b>somente neste navegador/dispositivo</b>. Baixe o backup regularmente.</span><div id="storeUse" style="margin-top:6px"></div></div></div>
+      <div class="card"><div class="card-h"><h3>🕘 Pontos de restauração</h3></div><div class="cfg-txt">Criados automaticamente antes de cada importação e restauração (os 5 mais recentes, neste navegador). Use para desfazer uma importação.<div id="snapList" style="margin-top:8px"></div></div></div>
+      <div class="card"><div class="card-h"><h3>📦 Armazenamento</h3></div><div class="cfg-txt"><span id="sideLocal">Dados salvos <b>somente neste navegador e neste endereço</b> (<b id="curHost"></b>). Outro navegador, outro computador ou outro endereço do app (inclusive os links de publicação da Vercel) <b>não</b> enxergam estes dados. Baixe o backup regularmente.</span><div id="storeUse" style="margin-top:6px"></div></div></div>
       <div class="card"><div class="card-h"><h3>🖼 Logo</h3></div><div class="cfg-txt">Logo exibido no menu, no celular e nos relatórios PDF. A troca vale para este navegador.</div>
         <div class="cfg-acts"><button class="btn" id="btnLogo">Alterar logo</button><button class="btn ghost" id="btnLogoReset">Voltar ao logo COSAMPA</button></div></div>
     </div>
@@ -443,6 +444,25 @@ function wrapText(str, max = 14, lines = 3){
   if (out.length > lines) { const keep = out.slice(0, lines); keep[lines-1] = keep[lines-1].slice(0, max-1) + '…'; return keep; }
   return out;
 }
+/* ---------- Pontos de restauração (automáticos antes de cada importação/restauração) ---------- */
+const LS_SNAP = 'cosampa_histogramas_pontos';
+const Snap = {
+  list(){ try { return JSON.parse(localStorage.getItem(LS_SNAP) || '[]'); } catch (e) { return []; } },
+  take(label){
+    const item = {t: new Date().toISOString(), label, counts: {labor: Repo.data.labor.length, equip: Repo.data.equip.length, manual: Repo.data.manual.length}, data: {labor: Repo.pack('labor'), equip: Repo.pack('equip'), manual: Repo.pack('manual')}};
+    let l = [item, ...this.list()].slice(0, 5);
+    while (l.length) { try { localStorage.setItem(LS_SNAP, JSON.stringify(l)); return true; } catch (e) { l = l.slice(0, -1); } }
+    return false;
+  },
+  async restore(i){
+    const it = this.list()[i]; if (!it) return;
+    const ok = await confirmBox('Restaurar ponto', `<p>Voltar os dados para <b>${new Date(it.t).toLocaleString('pt-BR')}</b> (${esc(it.label)})?</p><p>${it.counts.labor} cadastro(s) de mão de obra, ${it.counts.equip} de equipamentos e ${it.counts.manual} lançamento(s) manuais.</p><div class="alert warn">Os dados atuais${Repo.mode === 'db' ? ' do BANCO COMPARTILHADO' : ''} serão substituídos. Antes disso, um novo ponto com a situação atual é criado.</div>`, 'Restaurar', true);
+    if (!ok) return;
+    this.take('Antes de restaurar ponto');
+    const nd = {labor: Repo.unpack(it.data.labor), equip: Repo.unpack(it.data.equip), manual: Repo.unpack(it.data.manual)};
+    if (Repo.replaceAll(nd)) { toast('Ponto de restauração aplicado.', 'ok'); refreshAll(); }
+  }
+};
 const LS_LOG = 'cosampa_histogramas_avisos';
 const Log = { items: (() => { try { return JSON.parse(localStorage.getItem(LS_LOG) || '[]'); } catch (e) { return []; } })(), unread: 0,
   add(msg, type){ this.items.unshift({t: new Date().toISOString(), msg, type}); this.items = this.items.slice(0, 200); this.unread++; try { localStorage.setItem(LS_LOG, JSON.stringify(this.items)); } catch (e) {} if (typeof updateBadge === 'function') updateBadge(); if (typeof UI !== 'undefined' && UI.tab === 'avisos') renderAvisos(); },
@@ -880,7 +900,7 @@ const UI = {
   mode: {labor:'auto', equip:'auto'},
   page: {labor:1, equip:1},
   ms: {},
-  resumo: {obras:[], week:'', sit:'', sub:'tabela', jr:'labor'},
+  resumo: {obras:[], week:'__last__', sit:'', sub:'tabela', jr:'labor'},
 };
 const charts = {};
 function killChart(id){ if (charts[id]) { try { charts[id].destroy(); } catch (e) {} delete charts[id]; } }
@@ -1043,9 +1063,9 @@ function histogramModel(kind, f, mode){
   if (m === 'auto' || m === 'semana') m = weeks.length <= 1 ? 'obra' : 'semanaobra';
   const groups = []; let note = '';
   if (m === 'obra') {
-    const wRef = weeks[weeks.length - 1];
-    if (weeks.length > 1) note = `Por obra mostra a semana mais recente do filtro (${wRef}) — efetivos de semanas diferentes não são somados.`;
-    for (const o of obras) { const c = cells.get(wRef + '||' + o); if (c) groups.push({label: wrapText(labels.get(o)), title: `${labels.get(o)} — ${wRef}`, a: aggCells(kind, [c])}); }
+    const lat = latestPerObra({weeks, obras, cells});
+    if (weeks.length > 1) note = 'Por obra mostra a semana mais recente de CADA obra dentro do filtro — efetivos de semanas diferentes da mesma obra não são somados.';
+    for (const x of lat) groups.push({label: [...wrapText(labels.get(x.o)), weekShort(x.w)], title: `${labels.get(x.o)} — ${weekLabel(x.w, true)}`, a: aggCells(kind, [x.c])});
   } else if (m === 'semana') {
     for (const w of weeks) { const list = obras.map(o => cells.get(w + '||' + o)).filter(Boolean); groups.push({label: [weekShort(w), `${list.length} obra${list.length > 1 ? 's' : ''}`], title: weekLabel(w, true), a: aggCells(kind, list)}); }
   } else {
@@ -1360,14 +1380,24 @@ function renderKind(kind){
   renderKindJourney(kind, model);
   renderTable(kind, model);
 }
+/** Para cada obra: a semana mais recente (dentro do filtro) que tem dados */
+function latestPerObra(model){
+  const out = [];
+  for (const o of model.obras) { for (let i = model.weeks.length - 1; i >= 0; i--) { const c = model.cells.get(model.weeks[i] + '||' + o); if (c) { out.push({o, w: model.weeks[i], c}); break; } } }
+  return out;
+}
 function renderKpis(kind, model){
   const K = KINDS[kind]; const box = $(`#tab-${kind} [data-kpis]`);
-  const wRef = model.weeks[model.weeks.length - 1];
-  const a = wRef ? aggCells(kind, model.obras.map(o => model.cells.get(wRef + '||' + o)).filter(Boolean)) : null;
+  // Efetivo atual = soma, por obra, da semana mais recente de cada obra no período filtrado (não soma semanas)
+  const lat = latestPerObra(model);
+  const a = lat.length ? aggCells(kind, lat.map(x => x.c)) : null;
+  const ws = [...new Set(lat.map(x => x.w))].sort();
+  const wTxt = !ws.length ? 'sem dados no filtro' : ws.length === 1 ? weekLabel(ws[0]) : 'última semana de cada obra: ' + lat.map(x => `${model.labels.get(x.o)} ${weekShort(x.w)}`).join(' · ');
+  const distinct = new Set(model.rows.map(r => vincKey(kind, r))).size;
   const items = [
-    {l: model.obras.length <= 1 ? `Efetivo no fechamento` : `Efetivo — ${model.obras.length} obras do filtro`, v: a ? a.total : null, s: wRef ? weekLabel(wRef) : 'sem dados no filtro', dark: true},
-    ...K.cats.map(c => ({l: c.full, v: a ? a[c.k] : null, s: a && a.SD ? `+ ${fmtN(a.SD)} sem detalhamento` : (wRef || ''), c: c.color})),
-    {l: 'Cadastros no filtro', v: model.rows.length, s: `${model.weeks.length} semana(s) · ${model.obras.length} obra(s)`, c: '#111'}
+    {l: lat.length <= 1 ? `Efetivo no fechamento` : `Efetivo atual — ${lat.length} obras`, v: a ? a.total : null, s: wTxt, dark: true},
+    ...K.cats.map(c => ({l: c.full, v: a ? a[c.k] : null, s: a && a.SD ? `+ ${fmtN(a.SD)} sem detalhamento` : (ws.length === 1 ? ws[0] : `${ws.length ? weekShort(ws[0]) + ' a ' + weekShort(ws[ws.length - 1]) : ''}`), c: c.color})),
+    {l: kind === 'labor' ? 'Pessoas distintas no filtro' : 'Equipamentos distintos no filtro', v: distinct, s: `${fmtN(model.rows.length)} registros semanais · ${model.weeks.length} semana(s) · ${model.obras.length} obra(s)`, c: '#111'}
   ];
   box.innerHTML = items.map(i => `<div class="kpi ${i.dark ? 'dark' : ''}" style="--c:${i.c || '#F7931E'}"><div class="l">${esc(i.l)}</div><div class="v" data-n="${i.v ?? ''}">0</div><div class="s">${esc(i.s)}</div></div>`).join('');
   $$('.kpi .v', box).forEach(el => countUp(el, el.dataset.n === '' ? null : Number(el.dataset.n)));
@@ -1629,11 +1659,11 @@ async function fetchPublishedWorkbook(raw, gids){
     const id = idm[1], base = `https://docs.google.com/spreadsheets/d/${id}`;
     try { return await getXlsx(`${base}/export?format=xlsx`); }
     catch (e) {
-      const wb = XLSX.utils.book_new(); let n = 0, lastErr = null;
-      for (const k of ['labor', 'equip']) {
+      const wb = XLSX.utils.book_new(); let n = 0, lastErr = null; const seenTxt = new Set();
+      for (const k of ['labor', 'equip', 'manual']) {
         const gid = (gids || {})[k];
         const url = gid ? `${base}/gviz/tq?tqx=out:csv&gid=${encodeURIComponent(gid)}` : `${base}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(IMPORT_SHEET[k])}`;
-        try { addCsv(wb, await getCsv(url, IMPORT_SHEET[k]), IMPORT_SHEET[k]); n++; } catch (er) { lastErr = er; }
+        try { const txt = await getCsv(url, IMPORT_SHEET[k]); if (seenTxt.has(txt)) continue; /* aba inexistente: o Google devolve a 1ª aba */ seenTxt.add(txt); addCsv(wb, txt, IMPORT_SHEET[k]); n++; } catch (er) { if (k !== 'manual') lastErr = er; }
       }
       if (!n) throw lastErr || new Error(SHARE_HINT);
       return wb;
@@ -1649,11 +1679,84 @@ async function fetchPublishedWorkbook(raw, gids){
   }
 }
 /* Planilha única com duas abas: “MO” → Mão de obra · “Equipamento” → Equipamentos */
-const IMPORT_SHEET = {labor: 'MO', equip: 'Equipamento'};
+const IMPORT_SHEET = {labor: 'MO', equip: 'Equipamento', manual: 'Resumo'};
+/* Aba “Resumo”: totais por obra e semana (lançamentos sem detalhamento / complementos) */
+const RESUMO_COLS = [
+  {k: 'obra', l: 'Obra', al: ['obra', 'obras', 'empreendimento']},
+  {k: 'semana', l: 'Semana', al: ['semana', 'semanaiso', 'sem', 'week']},
+  {k: 'MOD', l: 'MOD', al: ['mod', 'direta', 'direto', 'maodeobradireta']},
+  {k: 'MOI', l: 'MOI', al: ['moi', 'indireta', 'indireto', 'maodeobraindireta']},
+  {k: 'TER', l: 'Terceiros', al: ['terceiros', 'terceiro', 'terceirizados', 'terceirizado', 'ter']},
+  {k: 'moTotal', l: 'Total MO', al: ['totalmo', 'totalmaodeobra', 'mototal', 'totaldemaodeobra']},
+  {k: 'LA', l: 'Linha amarela', al: ['linhaamarela', 'la']},
+  {k: 'LB', l: 'Linha branca', al: ['linhabranca', 'lb']},
+  {k: 'PP', l: 'P. porte', al: ['pporte', 'pequenoporte', 'pp']},
+  {k: 'eqTotal', l: 'Total equipamentos', al: ['totalequipamentos', 'totalequip', 'totalequipamento', 'eqtotal', 'totaldeequipamentos']},
+];
+const NUMK = ['MOD', 'MOI', 'TER', 'moTotal', 'LA', 'LB', 'PP', 'eqTotal'];
+function mapResumoHeaders(grid){
+  let best = null;
+  for (const row of grid.slice(0, 15)) {
+    const map = {}; let hits = 0, nums = 0;
+    row.cells.forEach((c, i) => { if (!c) return; const h = normHeader(c.w ?? c.v); const fd = RESUMO_COLS.find(x => x.al.includes(h)); if (fd && map[fd.k] == null) { map[fd.k] = i; hits++; if (NUMK.includes(fd.k)) nums++; } });
+    if (map.obra != null && nums >= 1 && (!best || hits > best.hits)) best = {row: row.n, map, hits};
+  }
+  return best;
+}
+function parseCount(raw){
+  if (raw == null) return {v: null};
+  if (typeof raw === 'number') return Number.isInteger(raw) && raw >= 0 ? {v: raw} : {v: null, err: `Quantidade inválida "${raw}"`};
+  const t = String(raw).trim(); if (!t || DASHES.has(t)) return {v: null};
+  const n = Number(t.replace(/\s/g, '').replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.'));
+  return Number.isInteger(n) && n >= 0 ? {v: n} : {v: null, err: `Quantidade inválida "${t}"`};
+}
+function analyzeResumo(grid, hdr, weekOverride, forceWeek){
+  const out = []; const seen = new Map();
+  const existing = new Map(Repo.data.manual.map(m => [m.semana + '|' + obraKey(m.obra), m]));
+  const cell = (row, k) => { const i = hdr.map[k]; if (i == null) return ''; const c = row.cells[i]; if (!c) return ''; return c.t === 'n' ? c.v : (c.w ?? String(c.v ?? '')); };
+  for (const row of grid) {
+    if (row.n <= hdr.row) continue;
+    const obraRaw = clean(cell(row, 'obra')); let wkRaw = cell(row, 'semana');
+    const nums = {}; const errors = []; const warns = [];
+    for (const k of NUMK) { const r = parseCount(cell(row, k)); nums[k] = r.v; if (r.err) errors.push({field: RESUMO_COLS.find(x => x.k === k).l, msg: r.err}); }
+    if (!obraRaw && NUMK.every(k => nums[k] == null) && isEmptyVal(wkRaw)) continue;          // linha vazia
+    if (forceWeek || hdr.map.semana == null || isEmptyVal(wkRaw)) wkRaw = weekOverride || wkRaw;
+    const w = parseWeek(wkRaw);
+    if (!obraRaw) errors.push({field: 'Obra', msg: 'Obrigatório'});
+    if (!w.v) errors.push({field: 'Semana', msg: w.err || 'Obrigatório'});
+    if (NUMK.every(k => nums[k] == null) && obraRaw) errors.push({field: 'Quantitativos', msg: 'Nenhum valor informado'});
+    // categorias + total informados e diferentes: vale a soma das categorias
+    [['MOD', 'MOI', 'TER', 'moTotal', 'mão de obra'], ['LA', 'LB', 'PP', 'eqTotal', 'equipamentos']].forEach(([a, b, c, t, nm]) => {
+      const cats = [a, b, c].filter(k => nums[k] != null);
+      if (cats.length && nums[t] != null) { const sm = [a, b, c].reduce((x, k) => x + (nums[k] || 0), 0); if (sm !== nums[t]) warns.push(`Total de ${nm} (${nums[t]}) diferente da soma das categorias (${sm}) — vale a soma`); nums[t] = null; }
+    });
+    const rec = {obra: obraRaw ? canonObra(obraRaw) : '', semana: w.v, ...nums};
+    const res = {line: row.n, rec, errors, warns, existing: null, changed: false};
+    if (!errors.length) {
+      const key = rec.semana + '|' + obraKey(rec.obra);
+      if (seen.has(key)) errors.push({field: 'Obra/Semana', msg: `Duplicado na planilha (mesma obra e semana da linha ${seen.get(key)})`});
+      else { seen.set(key, row.n); res.existing = existing.get(key) || null; if (res.existing) res.changed = NUMK.some(k => (res.existing[k] ?? null) !== (rec[k] ?? null)); }
+    }
+    out.push(res);
+  }
+  return out;
+}
+function commitResumo(results){
+  let created = 0, updated = 0; const now = new Date().toISOString();
+  const idx = new Map(Repo.data.manual.map(m => [m.semana + '|' + obraKey(m.obra), m]));
+  for (const r of results) {
+    if (r.errors.length) continue;
+    const key = r.rec.semana + '|' + obraKey(r.rec.obra); const ex = idx.get(key);
+    if (ex) { if (!r.changed) continue; NUMK.forEach(k => ex[k] = r.rec[k] ?? null); ex.updatedAt = now; updated++; }
+    else { const n = {id: uid(), obra: r.rec.obra, semana: r.rec.semana, createdAt: now}; NUMK.forEach(k => n[k] = r.rec[k] ?? null); Repo.data.manual.push(n); idx.set(key, n); created++; }
+  }
+  return {created, updated};
+}
 const DISTINCT = {labor: ['nome', 'matricula', 'tipo', 'admissao'], equip: ['prefixo', 'classificacao', 'mobilizacao']};
-function sheetNameMatch(kind, n){ const h = normHeader(n); return kind === 'labor' ? (h === 'mo' || /^mo\d|maodeobra|efetivo|colaborador/.test(h)) : /equip/.test(h); }
+function sheetNameMatch(kind, n){ const h = normHeader(n); return kind === 'labor' ? (h === 'mo' || /^mo\d|maodeobra|efetivo|colaborador/.test(h)) : kind === 'manual' ? /resumo|totais/.test(h) : /equip/.test(h); }
 function guessSheet(kind, wb){
   const byName = wb.SheetNames.find(n => sheetNameMatch(kind, n)); if (byName) return byName;
+  if (kind === 'manual') return wb.SheetNames.find(n => !/instru/i.test(n) && mapResumoHeaders(sheetGrid(wb.Sheets[n]))) || '';
   let best = '', bestHits = 0;
   for (const n of wb.SheetNames) { if (/instru/i.test(n)) continue; const h = mapHeaders(kind, sheetGrid(wb.Sheets[n])); if (h && DISTINCT[kind].some(k => h.map[k] != null) && h.hits > bestHits) { best = n; bestHits = h.hits; } }
   return best;
@@ -1661,9 +1764,9 @@ function guessSheet(kind, wb){
 function openImport(startKind, preWb, preName){
   if (!libsOk()) return toast('Bibliotecas não carregadas (verifique a conexão com a internet).', 'err');
   const KS = ['labor', 'equip'];
-  const st = {wb: null, source: '', part: {labor: {sheet: '', results: [], hdr: null}, equip: {sheet: '', results: [], hdr: null}}};
+  const st = {wb: null, source: '', part: {labor: {sheet: '', results: [], hdr: null}, equip: {sheet: '', results: [], hdr: null}, manual: {sheet: '', results: [], hdr: null}}};
   const body = `
-  <div class="alert info" style="font-size:12px">A planilha de importação tem <b>duas abas</b>: <b>MO</b> → importada para <b>Mão de obra</b> e <b>Equipamento</b> → importada para <b>Equipamentos</b>. As duas são lidas e importadas juntas. Baixe o <b>Modelo Excel</b> para ver o formato.</div>
+  <div class="alert info" style="font-size:12px">A planilha de importação tem <b>três abas</b>: <b>MO</b> → <b>Mão de obra</b> · <b>Equipamento</b> → <b>Equipamentos</b> · <b>Resumo</b> → totais por obra e semana (lançamentos sem detalhamento / complementos, ex.: obras sem cadastro individual). As três são lidas e importadas juntas. Baixe o <b>Modelo Excel</b> para ver o formato.</div>
   <div class="cols2">
     <div><div class="drop" data-drop><b>Arraste o arquivo aqui</b><br>ou clique para escolher (.xlsx, .xls, .csv)<input type="file" accept=".xlsx,.xls,.xlsm,.csv,.txt" hidden data-file></div></div>
     <div class="card" style="margin:0;box-shadow:none"><div style="font-weight:700;margin-bottom:6px">Planilha do Google Sheets — somente leitura</div>
@@ -1672,13 +1775,13 @@ function openImport(startKind, preWb, preName){
         <div class="fld" style="flex:1;min-width:110px"><span>gid aba MO (opcional)</span><input data-gid-labor value="${esc(sheetCfg().gidL)}"></div>
         <div class="fld" style="flex:1;min-width:110px"><span>gid aba Equipamento</span><input data-gid-equip value="${esc(sheetCfg().gidE)}" placeholder="opcional"></div>
         <button class="btn dark" data-gs>Ler planilha</button></div>
-      <div class="muted" style="font-size:11px;margin-top:6px">Lê as abas MO e Equipamento pelo nome. A planilha precisa estar compartilhada como “Qualquer pessoa com o link — Leitor” (ou publicada). Nada é gravado no Google Sheets. Se o navegador bloquear, baixe a planilha em Excel (.xlsx) e importe pelo arquivo.</div>
+      <div class="muted" style="font-size:11px;margin-top:6px">Lê as abas MO, Equipamento e Resumo pelo nome. A planilha precisa estar compartilhada como “Qualquer pessoa com o link — Leitor” (ou publicada). Nada é gravado no Google Sheets. Se o navegador bloquear, baixe a planilha em Excel (.xlsx) e importe pelo arquivo.</div>
     </div>
   </div>
   <div data-gserr></div>
   <div data-step2 hidden style="margin-top:14px">
     <div class="form-grid" style="grid-template-columns:repeat(auto-fit,minmax(240px,1fr))">
-      <div class="fld"><span>Semana para linhas sem semana (vale para as duas abas)</span>${weekInputHTML('wk', '')}</div>
+      <div class="fld"><span>Semana para linhas sem semana (vale para todas as abas)</span>${weekInputHTML('wk', '')}</div>
       <label class="fld" style="flex-direction:row;align-items:center;gap:8px;text-transform:none;font-size:13px;color:var(--tx)"><input type="checkbox" data-force style="width:auto;min-height:0"> Aplicar esta semana a todas as linhas</label>
       <div class="fld"><span>Formato das datas em texto</span><select data-dord><option value="auto">Automático (detecta pelo arquivo)</option><option value="dmy">dia/mês/ano (dd/mm/aaaa)</option><option value="mdy">mês/dia/ano (mm/dd/aaaa — Google em inglês)</option></select></div>
     </div>
@@ -1687,8 +1790,12 @@ function openImport(startKind, preWb, preName){
       <div class="card-h" style="margin-bottom:6px"><h3>${k === 'labor' ? 'Aba MO → Mão de obra' : 'Aba Equipamento → Equipamentos'}</h3><span class="sp"></span>
         <div class="fld" style="flex-direction:row;align-items:center;gap:8px"><span>Aba do arquivo</span><select data-sheet="${k}" style="min-width:180px"></select></div></div>
       <div data-sum="${k}"></div></div>`).join('')}
+    <div class="card" data-part="manual" style="margin-top:12px;box-shadow:none;border-color:var(--line)">
+      <div class="card-h" style="margin-bottom:6px"><h3>Aba Resumo → Totais por obra e semana</h3><span class="sp"></span>
+        <div class="fld" style="flex-direction:row;align-items:center;gap:8px"><span>Aba do arquivo</span><select data-sheet="manual" style="min-width:180px"></select></div></div>
+      <div data-sum="manual"></div></div>
   </div>`;
-  const m = openModal({title: 'Importar planilha (MO + Equipamento)', body, wide: true, foot: `<label data-confirm-wrap hidden style="margin-right:auto;display:flex;gap:6px;align-items:center;font-size:13px"><input type="checkbox" data-confirm> Confirmo a atualização dos cadastros existentes listados</label><button class="btn" data-x>Cancelar</button><button class="btn primary" data-ok disabled>Importar</button>`});
+  const m = openModal({title: 'Importar planilha (MO + Equipamento + Resumo)', body, wide: true, foot: `<label data-confirm-wrap hidden style="margin-right:auto;display:flex;gap:6px;align-items:center;font-size:13px"><input type="checkbox" data-confirm> Confirmo a atualização dos cadastros existentes listados</label><button class="btn" data-x>Cancelar</button><button class="btn primary" data-ok disabled>Importar</button>`});
   const el = m.el; bindWeekPickers(el);
   $('[data-x]', el).onclick = m.close;
   const drop = $('[data-drop]', el), fileIn = $('[data-file]', el);
@@ -1712,7 +1819,7 @@ function openImport(startKind, preWb, preName){
   };
   function setWb(wb, name){
     st.wb = wb; st.source = name;
-    for (const k of KS) {
+    for (const k of [...KS, 'manual']) {
       const sel = $(`[data-sheet="${k}"]`, el);
       sel.innerHTML = `<option value="">(não importar)</option>` + wb.SheetNames.map(n => `<option>${esc(n)}</option>`).join('');
       sel.value = guessSheet(k, wb);
@@ -1721,7 +1828,7 @@ function openImport(startKind, preWb, preName){
     if (wb.SheetNames.length === 1 && !$('[data-sheet="labor"]', el).value && !$('[data-sheet="equip"]', el).value) $(`[data-sheet="${startKind}"]`, el).value = wb.SheetNames[0];
     $('[data-step2]', el).hidden = false; analyzeAll();
   }
-  KS.forEach(k => $(`[data-sheet="${k}"]`, el).onchange = analyzeAll);
+  [...KS, 'manual'].forEach(k => $(`[data-sheet="${k}"]`, el).onchange = analyzeAll);
   el.addEventListener('input', e => { if (e.target.dataset.k === 'wk') analyzeAll(); });
   $('[data-force]', el).onchange = analyzeAll;
   $('[data-dord]', el).onchange = analyzeAll;
@@ -1733,7 +1840,8 @@ function openImport(startKind, preWb, preName){
     $('[data-wkerr]', el).innerHTML = wkRaw && wk.err ? `<div class="alert err">${esc(wk.err)}</div>` : '';
     const sameSheet = $('[data-sheet="labor"]', el).value && $('[data-sheet="labor"]', el).value === $('[data-sheet="equip"]', el).value;
     for (const k of KS) analyzePart(k, wk.v, sameSheet);
-    const anyUpd = KS.some(k => st.part[k].results.some(r => !r.errors.length && r.changed));
+    analyzeResumoPart(wk.v);
+    const anyUpd = [...KS, 'manual'].some(k => st.part[k].results.some(r => !r.errors.length && r.changed));
     $('[data-confirm-wrap]', el).hidden = !anyUpd; $('[data-confirm]', el).checked = false;
     updateBtn();
   }
@@ -1767,21 +1875,47 @@ function openImport(startKind, preWb, preName){
       ${P.results.slice(0, 100).map(r => `<tr><td>${r.line}</td><td>${r.errors.length ? '<span class="chip err">Pendente</span>' : r.changed ? '<span class="chip warn">Alterar</span>' : r.existing ? '<span class="chip">Sem alteração</span>' : '<span class="chip ok">Novo</span>'}</td>${cols.map(c => `<td>${esc(displayVal(kind, r.rec, c))}</td>`).join('')}</tr>`).join('')}
       </tbody></table></div></details>`;
   }
+  function analyzeResumoPart(wkV){
+    const P = st.part.manual; const sum = $('[data-sum="manual"]', el);
+    P.sheet = $('[data-sheet="manual"]', el).value; P.results = []; P.hdr = null;
+    if (!P.sheet) { sum.innerHTML = `<div class="muted" style="font-size:13px">Nenhuma aba selecionada — totais por obra não serão importados${st.wb.SheetNames.length > 1 ? ' (esperada a aba “Resumo”)' : ''}.</div>`; return; }
+    if ([...KS].some(k => $(`[data-sheet="${k}"]`, el).value === P.sheet)) { sum.innerHTML = `<div class="alert err">A aba “${esc(P.sheet)}” já foi escolhida para outra parte. Selecione a aba Resumo.</div>`; return; }
+    const grid = sheetGrid(st.wb.Sheets[P.sheet]); P.hdr = mapResumoHeaders(grid);
+    if (!P.hdr) { sum.innerHTML = `<div class="alert err">Cabeçalhos da aba Resumo não reconhecidos em “${esc(P.sheet)}”. Colunas esperadas: ${RESUMO_COLS.map(c => c.l).join(', ')}.</div>`; return; }
+    P.results = analyzeResumo(grid, P.hdr, wkV, $('[data-force]', el).checked);
+    const valid = P.results.filter(r => !r.errors.length), bad = P.results.filter(r => r.errors.length), upd = valid.filter(r => r.changed), same = valid.filter(r => r.existing && !r.changed), news = valid.filter(r => !r.existing);
+    const errs = bad.flatMap(r => r.errors.map(e => `<li><b>Linha ${r.line}</b> — ${esc(e.field)}: ${esc(e.msg)}</li>`));
+    const warns = P.results.flatMap(r => r.warns.map(w => `<li><b>Linha ${r.line}</b> — ${esc(w)}</li>`));
+    const v = x => x == null ? '<span class="muted">—</span>' : fmtN(x);
+    sum.innerHTML = `
+      <div class="stat-row"><span class="chip info">${esc(st.source)} · aba “${esc(P.sheet)}”</span><span class="chip">${P.results.length} linha(s)</span><span class="chip ok">${valid.length} válida(s)</span><span class="chip err">${bad.length} pendente(s)</span><span class="chip or">${news.length} nova(s)</span><span class="chip warn">${upd.length} alterada(s)</span><span class="chip">${same.length} sem alteração</span></div>
+      <div class="alert info" style="font-size:12px">Os totais <b>complementam</b> os cadastros: em cada obra/semana, as categorias que já têm cadastros individuais continuam vindo dos cadastros; os valores desta aba preenchem apenas as que não têm. Linhas existentes da mesma obra e semana são atualizadas.</div>
+      ${upd.length ? `<div class="alert warn"><b>${upd.length} lançamento(s) existente(s) serão atualizados:</b> ${esc(upd.slice(0, 20).map(r => r.existing.obra + ' ' + r.existing.semana).join(' · '))}</div>` : ''}
+      ${warns.length ? `<ul class="upd-list">${warns.slice(0, 100).join('')}</ul>` : ''}
+      ${errs.length ? `<div style="font-weight:700;margin:8px 0 4px">Erros por linha e campo (${errs.length})</div><ul class="err-list">${errs.slice(0, 300).join('')}</ul>` : ''}
+      <details ${P.results.length <= 30 ? 'open' : ''} style="margin-top:8px"><summary style="cursor:pointer;font-weight:700">Prévia</summary>
+      <div class="tbl-wrap" style="max-height:300px;margin-top:6px"><table><thead><tr><th>Linha</th><th>Status</th>${RESUMO_COLS.map(c => `<th>${esc(c.l)}</th>`).join('')}</tr></thead><tbody>
+      ${P.results.slice(0, 100).map(r => `<tr><td>${r.line}</td><td>${r.errors.length ? '<span class="chip err">Pendente</span>' : r.changed ? '<span class="chip warn">Alterar</span>' : r.existing ? '<span class="chip">Sem alteração</span>' : '<span class="chip ok">Novo</span>'}</td><td class="l">${esc(r.rec.obra)}</td><td>${esc(r.rec.semana)}</td>${NUMK.map(k => `<td>${v(r.rec[k])}</td>`).join('')}</tr>`).join('')}
+      </tbody></table></div></details>`;
+  }
   function updateBtn(){
     const v = {}; KS.forEach(k => v[k] = st.part[k].results.filter(r => !r.errors.length));
     const act = k => v[k].filter(r => !r.existing || r.changed).length;
     const rm = k => { const cb = $(`[data-mirror="${k}"]`, el); return cb && cb.checked ? (st.part[k].missing || []).length : 0; };
-    const total = act('labor') + act('equip') + rm('labor') + rm('equip'); const upd = KS.some(k => v[k].some(r => r.changed)) || rm('labor') + rm('equip') > 0;
+    v.manual = st.part.manual.results.filter(r => !r.errors.length);
+    const total = act('labor') + act('equip') + act('manual') + rm('labor') + rm('equip'); const upd = [...KS, 'manual'].some(k => v[k].some(r => r.changed)) || rm('labor') + rm('equip') > 0;
     const b = $('[data-ok]', el);
     b.disabled = !total || (upd && !$('[data-confirm]', el).checked);
-    b.textContent = total ? `Importar: ${act('labor')} mão de obra · ${act('equip')} equipamentos${rm('labor') + rm('equip') ? ` · excluir ${rm('labor') + rm('equip')}` : ''}` : (KS.some(k => v[k].length) ? 'Nada a alterar — app já está igual à planilha' : 'Importar');
+    b.textContent = total ? `Importar: ${act('labor')} mão de obra · ${act('equip')} equipamentos · ${act('manual')} totais${rm('labor') + rm('equip') ? ` · excluir ${rm('labor') + rm('equip')}` : ''}` : ([...KS, 'manual'].some(k => v[k].length) ? 'Nada a alterar — app já está igual à planilha' : 'Importar');
   }
   $('[data-ok]', el).onclick = () => {
-    const res = Repo.tx(() => { const o = {}; for (const k of KS) { const cb = $(`[data-mirror="${k}"]`, el); const ids = cb && cb.checked ? new Set(st.part[k].missing.map(x => x.id)) : null; if (st.part[k].results.length) o[k] = commitImport(k, st.part[k].results, false, ids); } return o; });
+    Snap.take('Antes de importar planilha (' + st.source + ')');
+    const res = Repo.tx(() => { const o = {}; for (const k of KS) { const cb = $(`[data-mirror="${k}"]`, el); const ids = cb && cb.checked ? new Set(st.part[k].missing.map(x => x.id)) : null; if (st.part[k].results.length) o[k] = commitImport(k, st.part[k].results, false, ids); } if (st.part.manual.results.length) o.manual = commitResumo(st.part.manual.results); return o; });
     Sync.markImported();
     if (!res.ok) return;
     const t = k => { const r = res.out[k]; return r ? `${KINDS[k].title}: ${r.created} novo(s), ${r.updated} alterado(s)${r.removed ? `, ${r.removed} excluído(s)` : ''}${r.preserved ? `, ${r.preserved} com data inicial preservada` : ''}` : `${KINDS[k].title}: não importado`; };
-    toast(`Importação salva — ${t('labor')} · ${t('equip')}.`, 'ok');
+    const tm = res.out.manual ? `Totais (Resumo): ${res.out.manual.created} novo(s), ${res.out.manual.updated} alterado(s)` : 'Totais (Resumo): não importado';
+    toast(`Importação salva — ${t('labor')} · ${t('equip')} · ${tm}.`, 'ok');
     m.close(); refreshAll();
   };
   if (preWb) setWb(preWb, preName || 'Google Sheets publicado');
@@ -1888,12 +2022,16 @@ function openManualForm(existing){
 /* =====================================================================
    RESUMO
    ===================================================================== */
+function resumoWeekText(){ const R = UI.resumo; return R.week === '__last__' ? 'Semana mais recente de cada obra' : weekLabel(R.week, true); }
 function resumoData(){
-  const R = UI.resumo; const f = {obras: R.obras, weeks: R.week ? [R.week] : [], from: '', to: '', cat: '', sit: R.sit, q: ''};
+  const R = UI.resumo; const last = R.week === '__last__';
+  const f = {obras: R.obras, weeks: !last && R.week ? [R.week] : [], from: '', to: '', cat: '', sit: R.sit, q: ''};
   const L = computeCells('labor', f), E = computeCells('equip', f);
   const opts = obraOptions(['labor', 'equip']);
   const obras = (R.obras.length ? R.obras : opts.map(o => o.v)).map(k => ({k, l: (opts.find(o => o.v === k) || {}).l || k}));
-  const rows = obras.map(o => ({obra: o.l, k: o.k, L: L.cells.get(R.week + '||' + o.k) || null, E: E.cells.get(R.week + '||' + o.k) || null}));
+  // “Mais recente de cada obra”: para cada obra usa a última semana com dados (mão de obra e equipamentos independentes)
+  const pick = (C, o) => { if (!last) return {c: C.cells.get(R.week + '||' + o) || null, w: R.week}; const ws = sortedWeeks(C.cells); for (let i = ws.length - 1; i >= 0; i--) { const c = C.cells.get(ws[i] + '||' + o); if (c) return {c, w: ws[i]}; } return {c: null, w: ''}; };
+  const rows = obras.map(o => { const l = pick(L, o.k), e = pick(E, o.k); return {obra: o.l, k: o.k, L: l.c, E: e.c, wL: l.w, wE: e.w}; });
   return {rows, f};
 }
 function buildResumo(){
@@ -1929,8 +2067,8 @@ function cellTxt(c, k){ if (!c) return '0'; if (c[k] == null) return '—'; retu
 function renderResumo(){
   const sec = $('#tab-resumo'); const R = UI.resumo;
   UI.ms.resumo.refresh(); R.obras = UI.ms.resumo.value;
-  const weeks = allWeeks(); if (!weeks.includes(R.week)) R.week = weeks[0] || '';
-  $('[data-week]', sec).innerHTML = weeks.length ? weeks.map(w => `<option value="${w}">${esc(weekLabel(w, true))}</option>`).join('') : '<option value="">Sem semanas cadastradas</option>';
+  const weeks = allWeeks(); if (R.week !== '__last__' && !weeks.includes(R.week)) R.week = '__last__';
+  $('[data-week]', sec).innerHTML = weeks.length ? `<option value="__last__">Mais recente de cada obra</option>` + weeks.map(w => `<option value="${w}">${esc(weekLabel(w, true))}</option>`).join('') : '<option value="__last__">Sem semanas cadastradas</option>';
   $('[data-week]', sec).value = R.week;
   { const sel = $('[data-rsit]', sec); const vals = new Map();
     for (const r of Repo.data.labor) { const s2 = clean(r.situacao); if (s2 && !vals.has(norm(s2))) vals.set(norm(s2), s2); }
@@ -1943,27 +2081,27 @@ function renderResumo(){
   const body = $('[data-body]', sec);
   Object.keys(charts).filter(k => k.startsWith('rs-')).forEach(killChart);
   if (journeys['rs-jr']) cancelAnimationFrame(journeys['rs-jr'].raf);
-  const {rows} = resumoData();
+  const {rows} = resumoData(); const rwTxt = resumoWeekText();
   if (R.sub === 'tabela') {
     const L = KINDS.labor.cats, E = KINDS.equip.cats;
     const tot = {}; const unk = {}; [...L, ...E].forEach(c => { tot[c.k] = 0; unk[c.k] = false; }); tot.L = 0; tot.E = 0;
     rows.forEach(r => { L.forEach(c => { if (r.L && r.L[c.k] == null) unk[c.k] = true; else tot[c.k] += r.L ? r.L[c.k] : 0; }); E.forEach(c => { if (r.E && r.E[c.k] == null) unk[c.k] = true; else tot[c.k] += r.E ? r.E[c.k] : 0; }); tot.L += r.L ? r.L.total : 0; tot.E += r.E ? r.E.total : 0; });
     const tag = c => c && c.manual ? ` <span class="chip warn" title="Lançamento manual">${c.unknown ? 'Sem detalhamento' : '+ Complemento'}</span>` : '';
     body.innerHTML = `${R.sit ? `<div class="alert info" style="font-size:12px;padding:7px 10px">Filtro de situação aplicado aos cadastros de mão de obra (<b>${esc(R.sitLabel)}</b>). Complementos manuais não têm situação e continuam somados; equipamentos não são afetados.</div>` : ''}<div class="kpis k4">
-        <div class="kpi dark"><div class="l">Total mão de obra</div><div class="v" data-n="${tot.L}">0</div><div class="s">${esc(R.week || '')}</div></div>
+        <div class="kpi dark"><div class="l">Total mão de obra</div><div class="v" data-n="${tot.L}">0</div><div class="s">${esc(rwTxt)}</div></div>
         ${L.map(c => `<div class="kpi" style="--c:${c.color}"><div class="l">${esc(c.full)}</div><div class="v" data-n="${tot[c.k]}">0</div><div class="s">${unk[c.k] ? 'há obras sem detalhamento' : ''}</div></div>`).join('')}
-        <div class="kpi dark"><div class="l">Total equipamentos</div><div class="v" data-n="${tot.E}">0</div><div class="s">${esc(R.week || '')}</div></div>
+        <div class="kpi dark"><div class="l">Total equipamentos</div><div class="v" data-n="${tot.E}">0</div><div class="s">${esc(rwTxt)}</div></div>
         ${E.map(c => `<div class="kpi" style="--c:${c.color}"><div class="l">${esc(c.full)}</div><div class="v" data-n="${tot[c.k]}">0</div><div class="s">${unk[c.k] ? 'há obras sem detalhamento' : ''}</div></div>`).join('')}
       </div>
-      <div class="card"><div class="card-h"><h3>Quantitativos por obra</h3><span class="hint">${esc(weekLabel(R.week, true))}</span></div>
+      <div class="card"><div class="card-h"><h3>Quantitativos por obra</h3><span class="hint">${esc(rwTxt)}</span></div>
       <div class="tbl-wrap"><table><thead><tr><th>Obra</th>${L.map(c => `<th>${c.l}</th>`).join('')}<th>Total MO</th>${E.map(c => `<th>${c.l}</th>`).join('')}<th>Total equip.</th></tr></thead><tbody>
-      ${rows.map(r => `<tr><td class="l"><b>${esc(r.obra)}</b></td>${L.map(c => `<td class="num">${cellTxt(r.L, c.k)}</td>`).join('')}<td class="num" style="background:#FFF4E6">${r.L ? fmtN(r.L.total) : 0}${tag(r.L)}</td>${E.map(c => `<td class="num">${cellTxt(r.E, c.k)}</td>`).join('')}<td class="num" style="background:#FFF4E6">${r.E ? fmtN(r.E.total) : 0}${tag(r.E)}</td></tr>`).join('') || `<tr><td colspan="9" class="muted">Sem obras.</td></tr>`}
+      ${rows.map(r => `<tr><td class="l"><b>${esc(r.obra)}</b>${R.week === '__last__' && (r.wL || r.wE) ? ` <span class="muted" style="font-size:11px">${[...new Set([r.wL, r.wE].filter(Boolean))].map(weekShort).join(' / ')}</span>` : ''}</td>${L.map(c => `<td class="num">${cellTxt(r.L, c.k)}</td>`).join('')}<td class="num" style="background:#FFF4E6">${r.L ? fmtN(r.L.total) : 0}${tag(r.L)}</td>${E.map(c => `<td class="num">${cellTxt(r.E, c.k)}</td>`).join('')}<td class="num" style="background:#FFF4E6">${r.E ? fmtN(r.E.total) : 0}${tag(r.E)}</td></tr>`).join('') || `<tr><td colspan="9" class="muted">Sem obras.</td></tr>`}
       <tr class="tot"><td class="l">TOTAL GERAL (${rows.length} obra${rows.length !== 1 ? 's' : ''})</td>${L.map(c => `<td>${fmtN(tot[c.k])}${unk[c.k] ? '*' : ''}</td>`).join('')}<td class="hl">${fmtN(tot.L)}</td>${E.map(c => `<td>${fmtN(tot[c.k])}${unk[c.k] ? '*' : ''}</td>`).join('')}<td class="hl">${fmtN(tot.E)}</td></tr>
       </tbody></table></div>${Object.values(unk).some(Boolean) ? '<p class="muted" style="font-size:12px">* Categorias desconhecidas (“—”) de lançamentos sem detalhamento não entram na soma da categoria, mas entram no total.</p>' : ''}</div>`;
     $$('.kpi .v', body).forEach(el => countUp(el, Number(el.dataset.n)));
   } else {
     body.innerHTML = `<div class="card journey" data-rsj></div><div class="obra-grid">${rows.map((r, i) => `
-      <div class="card obra-card"><h4>${esc(r.obra)} <span class="chip">${esc(R.week)}</span></h4><div class="pair">
+      <div class="card obra-card"><h4>${esc(r.obra)} <span class="chip">${esc(R.week === '__last__' ? [...new Set([r.wL, r.wE].filter(Boolean))].map(weekShort).join(' / ') || '—' : R.week)}</span></h4><div class="pair">
         <div><div class="cap">Mão de obra</div><div style="position:relative;height:calc(100% - 16px)"><canvas id="rs-l-${i}"></canvas></div></div>
         <div><div class="cap">Equipamentos</div><div style="position:relative;height:calc(100% - 16px)"><canvas id="rs-e-${i}"></canvas></div></div>
       </div></div>`).join('') || '<div class="empty">Sem obras.</div>'}</div>`;
@@ -2020,15 +2158,24 @@ function downloadTemplate(){
     const K = KINDS[kind]; const ws = XLSX.utils.aoa_to_sheet([K.fields.map(f => f.l)]); ws['!cols'] = K.fields.map(f => ({wch: Math.max(12, f.l.length + 4)}));
     XLSX.utils.book_append_sheet(wb, ws, IMPORT_SHEET[kind]);
   }
+  const wr = XLSX.utils.aoa_to_sheet([RESUMO_COLS.map(c => c.l)]); wr['!cols'] = RESUMO_COLS.map(c => ({wch: Math.max(10, c.l.length + 4)}));
+  XLSX.utils.book_append_sheet(wb, wr, 'Resumo');
   const desc = (kind, f) => f.t === 'week' ? 'Semana ISO: 2026-W40 (segunda a domingo). Também aceita 40/2026 ou uma data do período.' : f.t === 'date' ? 'Data dd/mm/aaaa. “-” não é aceito como data (fica como não informado).' : f.t === 'cat' ? (kind === 'labor' ? 'MOD (Direto/Direta/MOD), MOI (Indireto/Indireta/MOI) ou Terceiros/Terceirizado' : 'Linha amarela, Linha branca ou P. porte') : f.k === 'matricula' ? 'Use 0 para PJ — identificado pelo CPF ou, sem CPF, pelo nome na obra.' : f.id ? 'Texto (zeros à esquerda são preservados — formate a coluna como Texto).' : 'Texto';
   const ins = [['Instruções — Controle de Histogramas'], [],
-    ['A planilha tem duas abas: “MO” (importada para Mão de obra) e “Equipamento” (importada para Equipamentos). As duas são importadas juntas.'],
+    ['A planilha tem três abas: “MO” (Mão de obra), “Equipamento” (Equipamentos) e “Resumo” (totais por obra e semana). As três são importadas juntas.'],
     ['Não renomeie as abas. Mantenha a linha de cabeçalho; os dados começam na linha 2.'], []];
   for (const kind of ['labor', 'equip']) {
     const K = KINDS[kind];
     ins.push([`Aba ${IMPORT_SHEET[kind]} → ${K.title}`], ['Coluna', 'Obrigatório', 'Formato / valores aceitos'], ...K.fields.map(f => [f.l, f.req ? 'Sim' : 'Não', desc(kind, f)]),
       [kind === 'labor' ? 'Chave: Semana + Obra + Matrícula (PJ: Semana + Obra + CPF ou Nome).' : 'Chave: Semana + Obra + Prefixo.'], []);
   }
+  ins.push(['Aba Resumo → totais por obra e semana'], ['Coluna', 'Obrigatório', 'Formato / valores aceitos'],
+    ['Obra', 'Sim', 'Texto'], ['Semana', 'Sim', 'Semana ISO: 2026-W40'],
+    ['MOD, MOI, Terceiros', 'Não', 'Números inteiros. Vazio = não informado; 0 = zero.'],
+    ['Total MO', 'Não', 'Use só quando não houver divisão por categoria (fica “Sem detalhamento”). Se as categorias forem preenchidas, vale a soma delas.'],
+    ['Linha amarela, Linha branca, P. porte', 'Não', 'Números inteiros.'],
+    ['Total equipamentos', 'Não', 'Use só quando não houver divisão por classificação.'],
+    ['Regra', '', 'Uma linha por obra e semana. Os valores complementam os cadastros: categorias que já têm cadastros individuais (abas MO/Equipamento) continuam vindo dos cadastros.'], []);
   ins.push(['Regras gerais'],
     ['Cada semana é uma fotografia: importar nova semana cria novos registros e preserva as anteriores.'],
     ['Reimportar a mesma obra/semana atualiza os cadastros (inclusive campos vazios) após confirmação, preservando a data inicial original.'],
@@ -2036,7 +2183,7 @@ function downloadTemplate(){
     ['Efetivo do histograma = ativos no fechamento da semana (domingo), datas inicial e final inclusivas.']);
   const wi = XLSX.utils.aoa_to_sheet(ins); wi['!cols'] = [{wch: 24}, {wch: 12}, {wch: 95}];
   XLSX.utils.book_append_sheet(wb, wi, 'Instruções');
-  XLSX.writeFile(wb, 'modelo_importacao_MO_Equipamento.xlsx');
+  XLSX.writeFile(wb, 'modelo_importacao_MO_Equipamento_Resumo.xlsx');
 }
 function histRows(kind, model){
   const K = KINDS[kind]; const rows = [];
@@ -2060,12 +2207,12 @@ function exportResumoExcel(){
   if (!libsOk()) return toast('Biblioteca Excel não carregada.', 'err');
   const {rows} = resumoData();
   const g = (c, k) => !c ? 0 : c[k] == null ? '—' : c[k];
-  const aoa = [['Resumo — semana ' + UI.resumo.week], ['Situação (mão de obra)', UI.resumo.sitLabel || 'Todas as situações'], [], ['Obra', 'MOD', 'MOI', 'Terceiros', 'Total MO', 'Linha amarela', 'Linha branca', 'P. porte', 'Total equipamentos'],
+  const aoa = [['Resumo — ' + resumoWeekText()], ['Situação (mão de obra)', UI.resumo.sitLabel || 'Todas as situações'], [], ['Obra', 'MOD', 'MOI', 'Terceiros', 'Total MO', 'Linha amarela', 'Linha branca', 'P. porte', 'Total equipamentos'],
     ...rows.map(r => [r.obra, g(r.L, 'MOD'), g(r.L, 'MOI'), g(r.L, 'TER'), r.L ? r.L.total : 0, g(r.E, 'LA'), g(r.E, 'LB'), g(r.E, 'PP'), r.E ? r.E.total : 0])];
   const sum = i => aoa.slice(4).reduce((s, r) => s + (typeof r[i] === 'number' ? r[i] : 0), 0);
   aoa.push(['TOTAL GERAL', sum(1), sum(2), sum(3), sum(4), sum(5), sum(6), sum(7), sum(8)]);
   const wb = XLSX.utils.book_new(); const ws = XLSX.utils.aoa_to_sheet(aoa); ws['!cols'] = [{wch: 36}, ...Array(8).fill({wch: 14})];
-  XLSX.utils.book_append_sheet(wb, ws, 'Resumo'); XLSX.writeFile(wb, `resumo_${UI.resumo.week || 'semana'}.xlsx`);
+  XLSX.utils.book_append_sheet(wb, ws, 'Resumo'); XLSX.writeFile(wb, `resumo_${UI.resumo.week === '__last__' ? 'mais_recente' : UI.resumo.week}.xlsx`);
 }
 
 /* =====================================================================
@@ -2087,6 +2234,7 @@ async function restore(file){
     if (errs.length) return toast('Backup com problemas: ' + errs.slice(0, 3).join('; '), 'err');
     const ok = await confirmBox('Restaurar backup', `<p>O backup contém <b>${nd.labor.length}</b> cadastro(s) de mão de obra, <b>${nd.equip.length}</b> de equipamentos e <b>${nd.manual.length}</b> lançamento(s) sem detalhamento${d.exportedAt ? `, gerado em ${new Date(d.exportedAt).toLocaleString('pt-BR')}` : ''}.</p><div class="alert warn"><b>${Repo.mode === 'db' ? 'Todos os dados do BANCO COMPARTILHADO serão substituídos (para todos os usuários).' : 'Todos os dados atuais deste navegador serão substituídos.'}</b> Recomenda-se baixar um backup antes.</div>`, 'Substituir dados', true);
     if (!ok) return;
+    Snap.take('Antes de restaurar backup');
     if (Repo.replaceAll(nd)) { toast('Backup restaurado.', 'ok'); refreshAll(); }
   } else toast('Backup inválido: ' + errs.slice(0, 3).join('; '), 'err');
 }
@@ -2148,7 +2296,7 @@ function printResumo(){
   const g = (c, k) => !c ? 0 : c[k] == null ? '—' : fmtN(c[k]);
   const tot = i => rows.reduce((s, r) => s + i(r), 0);
   const sumK = (grp, k) => tot(r => r[grp] && r[grp][k] != null ? r[grp][k] : 0);
-  const html = `<div class="p-page">${pHead('Resumo')}${pFilters([['Semana de referência', weekLabel(R.week, true)], ['Obras', R.obras.length ? R.obras.map(k => (ob.find(o => o.v === k) || {l: k}).l).join(', ') : 'Todas'], ['Situação (mão de obra)', R.sitLabel || 'Todas as situações']])}
+  const html = `<div class="p-page">${pHead('Resumo')}${pFilters([['Semana de referência', resumoWeekText()], ['Obras', R.obras.length ? R.obras.map(k => (ob.find(o => o.v === k) || {l: k}).l).join(', ') : 'Todas'], ['Situação (mão de obra)', R.sitLabel || 'Todas as situações']])}
     <table class="p-tbl" style="font-size:9px"><thead><tr><th>Obra</th><th>MOD</th><th>MOI</th><th>Terceiros</th><th>Total MO</th><th>Linha amarela</th><th>Linha branca</th><th>P. porte</th><th>Total equip.</th></tr></thead><tbody>
     ${rows.map(r => `<tr><td style="text-align:left">${esc(r.obra)}${(r.L && r.L.unknown) || (r.E && r.E.unknown) ? ' (sem detalhamento)' : ''}</td><td>${g(r.L, 'MOD')}</td><td>${g(r.L, 'MOI')}</td><td>${g(r.L, 'TER')}</td><td><b>${r.L ? fmtN(r.L.total) : 0}</b></td><td>${g(r.E, 'LA')}</td><td>${g(r.E, 'LB')}</td><td>${g(r.E, 'PP')}</td><td><b>${r.E ? fmtN(r.E.total) : 0}</b></td></tr>`).join('')}
     <tr class="tot"><td style="text-align:left">TOTAL GERAL</td><td>${fmtN(sumK('L', 'MOD'))}</td><td>${fmtN(sumK('L', 'MOI'))}</td><td>${fmtN(sumK('L', 'TER'))}</td><td>${fmtN(tot(r => r.L ? r.L.total : 0))}</td><td>${fmtN(sumK('E', 'LA'))}</td><td>${fmtN(sumK('E', 'LB'))}</td><td>${fmtN(sumK('E', 'PP'))}</td><td>${fmtN(tot(r => r.E ? r.E.total : 0))}</td></tr>
@@ -2165,6 +2313,8 @@ const Sync = {
   bar(cls, html, acts = ''){ const b = $('#syncBar'); b.className = 'sync ' + cls; b.innerHTML = `<span class="dot"></span><span>${html}</span><span class="acts">${acts}</span>`; },
   summarize(wb){
     const out = {};
+    { const sh = guessSheet('manual', wb); const g = sh && sheetGrid(wb.Sheets[sh]); const h = g && mapResumoHeaders(g);
+      if (h) { const res = analyzeResumo(g, h, '', false); const v = res.filter(r => !r.errors.length); out.manual = {sheet: sh, novos: v.filter(r => !r.existing).length, alterados: v.filter(r => r.changed).length, pend: res.length - v.length, total: res.length}; } else out.manual = null; }
     for (const k of ['labor', 'equip']) {
       const sh = guessSheet(k, wb); if (!sh) { out[k] = null; continue; }
       const grid = sheetGrid(wb.Sheets[sh]); const hdr = mapHeaders(k, grid); if (!hdr || !DISTINCT[k].some(x => hdr.map[x] != null)) { out[k] = null; continue; }
@@ -2181,7 +2331,7 @@ const Sync = {
     try {
       this.wb = await fetchPublishedWorkbook(cfg.url, {labor: cfg.gidL, equip: cfg.gidE}); this.at = new Date();
       this.paint();
-      if (manual) { const sm = this.summarize(this.wb); if (['labor', 'equip'].some(k => sm[k] && (sm[k].novos || sm[k].alterados || sm[k].pend))) this.review(); else toast('O app já está igual à planilha.', 'ok'); }
+      if (manual) { const sm = this.summarize(this.wb); if (['labor', 'equip', 'manual'].some(k => sm[k] && (sm[k].novos || sm[k].alterados || sm[k].pend))) this.review(); else toast('O app já está igual à planilha.', 'ok'); }
     } catch (e) {
       Log.add('Não foi possível ler a planilha conectada — ' + e.message + ' Sem acesso pelo link, use “Importar planilha” com o arquivo .xlsx baixado.', 'err');
       this.bar('err', `<b>Planilha não conectada</b> · <a href="#" data-sync="avisos" style="color:inherit">ver detalhes em Avisos</a>`, `<button class="btn sm" data-sync="run">Tentar de novo</button><button class="btn sm" data-sync="cfg">Conexão</button>`);
@@ -2190,10 +2340,10 @@ const Sync = {
   paint(){
     if (!this.wb) return; if (UI.tab === 'config') renderConfig();
     const sm = this.summarize(this.wb); const hh = this.at.toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'});
-    const part = k => { const x = sm[k]; const nm = k === 'labor' ? 'MO' : 'Equipamento'; if (!x) return `aba ${nm}: não encontrada`; const bits = []; if (x.novos) bits.push(`<b>${x.novos} novo(s)</b>`); if (x.alterados) bits.push(`<b>${x.alterados} alterado(s)</b>`); if (x.pend) bits.push(`${x.pend} com erro`); return `aba ${nm}: ${bits.length ? bits.join(', ') : 'sem novidades'}`; };
-    const chg = ['labor', 'equip'].some(k => sm[k] && (sm[k].novos || sm[k].alterados));
-    this.bar(chg ? 'chg' : 'ok', `<b>Planilha conectada</b> · lida às ${hh} · ${part('labor')} · ${part('equip')}`,
-      `${chg || ['labor', 'equip'].some(k => sm[k] && sm[k].pend) ? '<button class="btn sm primary" data-sync="review">Revisar e importar</button>' : ''}<button class="btn sm" data-sync="run">⟳ Ler de novo</button>`);
+    const part = k => { const x = sm[k]; const nm = IMPORT_SHEET[k]; if (!x) return `aba ${nm}: não encontrada`; const bits = []; if (x.novos) bits.push(`<b>${x.novos} novo(s)</b>`); if (x.alterados) bits.push(`<b>${x.alterados} alterado(s)</b>`); if (x.pend) bits.push(`${x.pend} com erro`); return `aba ${nm}: ${bits.length ? bits.join(', ') : 'sem novidades'}`; };
+    const chg = ['labor', 'equip', 'manual'].some(k => sm[k] && (sm[k].novos || sm[k].alterados));
+    this.bar(chg ? 'chg' : 'ok', `<b>Planilha conectada</b> · lida às ${hh} · ${part('labor')} · ${part('equip')}${sm.manual ? ' · ' + part('manual') : ''}`,
+      `${chg || ['labor', 'equip', 'manual'].some(k => sm[k] && sm[k].pend) ? '<button class="btn sm primary" data-sync="review">Revisar e importar</button>' : ''}<button class="btn sm" data-sync="run">⟳ Ler de novo</button>`);
   },
   review(){ if (this.wb) openImport(UI.tab === 'equip' ? 'equip' : 'labor', this.wb, `Planilha conectada (lida às ${this.at.toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'})})`); },
   markImported(){ setTimeout(() => this.paint(), 0); },
@@ -2226,10 +2376,14 @@ function paintSideMini(err){
     : `<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#A1A1AA;margin-right:5px"></span>Modo local (este navegador)`;
 }
 function renderConfig(){
+  const ch = document.getElementById('curHost'); if (ch) ch.textContent = location.host || 'arquivo local';
   const c = sheetCfg();
   const short = c.url.length > 70 ? c.url.slice(0, 67) + '…' : c.url;
-  $('#cfgSheet').innerHTML = `Lê as abas <b>MO</b> e <b>Equipamento</b> (somente leitura — nada é gravado no Google Sheets).<br>Link: <a href="${esc(c.url)}" target="_blank" rel="noopener">${esc(short)}</a><br>Leitura automática ao abrir: <b>${c.auto ? 'ligada' : 'desligada'}</b>${Sync.at ? `<br>Última leitura: <b>${Sync.at.toLocaleString('pt-BR')}</b>` : ''}`;
+  $('#cfgSheet').innerHTML = `Lê as abas <b>MO</b>, <b>Equipamento</b> e <b>Resumo</b> (somente leitura — nada é gravado no Google Sheets).<br>Link: <a href="${esc(c.url)}" target="_blank" rel="noopener">${esc(short)}</a><br>Leitura automática ao abrir: <b>${c.auto ? 'ligada' : 'desligada'}</b>${Sync.at ? `<br>Última leitura: <b>${Sync.at.toLocaleString('pt-BR')}</b>` : ''}`;
   paintDbStatus(); paintStorage();
+  const sl = Snap.list();
+  $('#snapList').innerHTML = sl.length ? sl.map((x, i) => `<div style="display:flex;gap:8px;align-items:center;padding:6px 0;border-top:1px solid var(--line2)"><div style="flex:1"><b>${new Date(x.t).toLocaleString('pt-BR')}</b><br><span class="muted" style="font-size:12px">${esc(x.label)} · MO ${x.counts.labor} · Equip. ${x.counts.equip} · Manuais ${x.counts.manual}</span></div><button class="btn sm" data-snap="${i}">Restaurar</button></div>`).join('') : '<span class="muted">Nenhum ponto ainda.</span>';
+  $$('#snapList [data-snap]').forEach(b => b.onclick = () => Snap.restore(+b.dataset.snap));
 }
 function avisosAtuais(){
   const out = [];
