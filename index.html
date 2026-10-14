@@ -1298,6 +1298,7 @@ function buildKindTab(kind){
       <button class="btn primary" data-a="new">＋ Novo cadastro</button>
       <button class="btn" data-a="import">⇪ Importar planilha</button>
       <button class="btn" data-a="template">⬇ Modelo Excel</button>
+      <button class="btn" data-a="conf">✓ Conferir com a planilha</button>
       <button class="btn" data-a="excel">⊞ Exportar Excel</button>
       <button class="btn dark" data-a="pdf">⎙ PDF</button>
     </div></div>
@@ -1348,6 +1349,7 @@ function buildKindTab(kind){
       else if (a === 'import') openImport(kind);
       else if (a === 'template') downloadTemplate();
       else if (a === 'excel') exportExcel(kind);
+      else if (a === 'conf') { switchTab('avisos'); if (!Sync.lastWb) Sync.run(false); setTimeout(() => { const h = [...document.querySelectorAll('#avisosBody h3')].find(x => /Conferência/.test(x.textContent)); h && h.scrollIntoView({behavior: 'smooth'}); }, 80); }
       else if (a === 'pdf') printKind(kind);
       else if (a === 'clear') { Object.assign(f, blankFilter()); $$('[data-f]', sec).forEach(i => i.value = ''); UI.ms[kind].obras.set([], true); UI.ms[kind].weeks.set([], true); renderKind(kind); }
       else if (a === 'edit') openRecordForm(kind, Repo.data[kind].find(r => r.id === b.dataset.id));
@@ -1818,7 +1820,7 @@ function openImport(startKind, preWb, preName){
     finally { b.disabled = false; b.textContent = 'Ler planilha'; }
   };
   function setWb(wb, name){
-    st.wb = wb; st.source = name;
+    st.wb = wb; st.source = name; Sync.lastWb = wb; Sync.lastSrc = name; Sync.lastAt = new Date();
     for (const k of [...KS, 'manual']) {
       const sel = $(`[data-sheet="${k}"]`, el);
       sel.innerHTML = `<option value="">(não importar)</option>` + wb.SheetNames.map(n => `<option>${esc(n)}</option>`).join('');
@@ -2320,7 +2322,7 @@ function printResumo(){
    ===================================================================== */
 /* ---------- Conexão com a planilha publicada (leitura) ---------- */
 const Sync = {
-  wb: null, at: null, busy: false,
+  wb: null, at: null, busy: false, lastWb: null, lastSrc: '', lastAt: null,
   bar(cls, html, acts = ''){ const b = $('#syncBar'); b.className = 'sync ' + cls; b.innerHTML = `<span class="dot"></span><span>${html}</span><span class="acts">${acts}</span>`; },
   summarize(wb){
     const out = {};
@@ -2340,7 +2342,7 @@ const Sync = {
     const cfg = sheetCfg();
     this.bar('load', 'Lendo a planilha conectada…');
     try {
-      this.wb = await fetchPublishedWorkbook(cfg.url, {labor: cfg.gidL, equip: cfg.gidE}); this.at = new Date();
+      this.wb = await fetchPublishedWorkbook(cfg.url, {labor: cfg.gidL, equip: cfg.gidE}); this.at = new Date(); this.lastWb = this.wb; this.lastSrc = 'Planilha conectada'; this.lastAt = this.at;
       this.paint();
       if (manual) { const sm = this.summarize(this.wb); if (['labor', 'equip', 'manual'].some(k => sm[k] && (sm[k].novos || sm[k].alterados || sm[k].pend))) this.review(); else toast('O app já está igual à planilha.', 'ok'); }
     } catch (e) {
@@ -2349,7 +2351,7 @@ const Sync = {
     } finally { this.busy = false; }
   },
   paint(){
-    if (!this.wb) return; if (UI.tab === 'config') renderConfig();
+    if (!this.wb) return; if (UI.tab === 'config') renderConfig(); if (UI.tab === 'avisos') renderAvisos();
     const sm = this.summarize(this.wb); const hh = this.at.toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'});
     const part = k => { const x = sm[k]; const nm = IMPORT_SHEET[k]; if (!x) return `aba ${nm}: não encontrada`; const bits = []; if (x.novos) bits.push(`<b>${x.novos} novo(s)</b>`); if (x.alterados) bits.push(`<b>${x.alterados} alterado(s)</b>`); if (x.pend) bits.push(`${x.pend} com erro`); return `aba ${nm}: ${bits.length ? bits.join(', ') : 'sem novidades'}`; };
     const chg = ['labor', 'equip', 'manual'].some(k => sm[k] && (sm[k].novos || sm[k].alterados));
@@ -2412,6 +2414,54 @@ function updateBadge(){
   const n = (typeof UI !== 'undefined' && UI.tab === 'avisos') ? 0 : Log.unread;
   b.hidden = !n; b.textContent = n > 99 ? '99+' : n;
 }
+/* ---------- Conferência: planilha × app, por obra e semana ---------- */
+function conferencia(kind){
+  const wb = Sync.lastWb; if (!wb) return null;
+  const sh = guessSheet(kind, wb); if (!sh) return {sheet: null, groups: []};
+  const grid = sheetGrid(wb.Sheets[sh]); const hdr = mapHeaders(kind, grid); if (!hdr) return {sheet: sh, groups: []};
+  const res = analyzeImport(kind, grid, hdr, '', false, detectDateOrder(kind, grid, hdr) || detectWbOrder(wb) || 'dmy');
+  const K = KINDS[kind]; const G = new Map();
+  const g = (w, o, label) => { const k = w + '||' + o; if (!G.has(k)) G.set(k, {w, o, label, linhas: 0, cats: {}, pend: 0, dup: 0, motivos: {}, app: 0, ativos: 0, foraAdm: 0, foraDem: 0, appCats: {}, manual: 0, faltando: 0, sobrando: 0}); return G.get(k); };
+  const keysPlan = new Map();
+  for (const r of res) {
+    const w = r.rec.semana || parseWeek(r.rec.semana).v; const o = obraKey(r.rec.obra || ''); if (!w || !o) continue;
+    const x = g(w, o, r.rec.obra); x.linhas++; const c = r.rec[K.catField]; if (c) x.cats[c] = (x.cats[c] || 0) + 1;
+    if (r.errors.length) { x.pend++; if (r.errors.some(e => /Duplicado/.test(e.msg))) x.dup++; r.errors.forEach(e => x.motivos[e.field + ': ' + e.msg.replace(/".*"/, '…')] = (x.motivos[e.field + ': ' + e.msg.replace(/".*"/, '…')] || 0) + 1); }
+    else { if (!keysPlan.has(w + '||' + o)) keysPlan.set(w + '||' + o, new Set()); keysPlan.get(w + '||' + o).add(recKey(kind, r.rec)); }
+  }
+  const mm = manualMap(kind);
+  for (const x of G.values()) {
+    const end = weekRange(x.w).end; const seen = new Set(); const ks = keysPlan.get(x.w + '||' + x.o) || new Set();
+    for (const r of Repo.data[kind]) {
+      if (r.semana !== x.w || obraKey(r.obra) !== x.o) continue; x.app++;
+      if (!ks.has(recKey(kind, r))) x.sobrando++;
+      if (r[K.start] && r[K.start] > end) { x.foraAdm++; continue; }
+      if (r[K.end] && r[K.end] < end) { x.foraDem++; continue; }
+      const vk = vincKey(kind, r); if (seen.has(vk)) continue; seen.add(vk); x.ativos++; x.appCats[r[K.catField]] = (x.appCats[r[K.catField]] || 0) + 1;
+    }
+    x.faltando = Math.max(0, (x.linhas - x.pend) - (x.app - x.sobrando));
+    const m = mm.get(x.w + '|' + x.o);
+    if (m) { const cell = computeCells(kind, {...blankFilter(), obras: [x.o], weeks: [x.w]}).cells.get(x.w + '||' + x.o); x.manual = cell ? cell.total - x.ativos : 0; }
+    x.totalApp = x.ativos + x.manual;
+    x.ok = x.totalApp === x.linhas;
+  }
+  return {sheet: sh, groups: [...G.values()].sort((a, b) => b.w.localeCompare(a.w) || String(a.label).localeCompare(String(b.label), 'pt-BR'))};
+}
+function conferenciaHTML(){
+  if (!Sync.lastWb) return `<div class="muted" style="font-size:13px">Nenhuma planilha lida ainda nesta sessão. <a href="#" data-sync="run">Ler a planilha conectada agora</a> ou use “Importar planilha”.</div>`;
+  const fl = UI.f.labor; const filtros = [fl.sit && 'Situação', fl.cat && 'Categoria', fl.q && 'Busca'].filter(Boolean);
+  let html = `<div class="muted" style="font-size:12px;margin-bottom:8px">Fonte: ${esc(Sync.lastSrc)} · lida às ${Sync.lastAt.toLocaleTimeString('pt-BR', {hour: '2-digit', minute: '2-digit'})}. A conferência usa <b>todos</b> os registros, sem os filtros de tela${filtros.length ? ` — atenção: na aba Mão de obra há filtro de <b>${filtros.join(', ')}</b> ativo, o que muda os números exibidos lá` : ''}.</div>`;
+  for (const kind of ['labor', 'equip']) {
+    const c = conferencia(kind); const K = KINDS[kind];
+    if (!c || !c.groups.length) { html += `<div class="muted" style="font-size:13px;margin:6px 0">${K.title}: aba não encontrada ou sem linhas.</div>`; continue; }
+    html += `<div style="font-weight:900;margin:10px 0 6px">${K.title} — aba “${esc(c.sheet)}”</div><div class="tbl-wrap"><table><thead><tr><th>Semana</th><th>Obra</th><th>Resultado</th><th>Linhas na planilha</th><th>Pendentes (não importadas)</th><th>Faltam importar</th><th>No app</th><th>Fora do fechamento</th><th>Contados no app</th><th>+ Manual / Resumo</th><th>Total no app</th></tr></thead><tbody>
+    ${c.groups.map(x => { const why = []; if (x.pend) why.push(`${x.pend} com erro (${Object.entries(x.motivos).map(([m, n]) => `${n}× ${m}`).join('; ')})`); if (x.faltando) why.push(`${x.faltando} ainda não importada(s) — use “Revisar e importar”`); if (x.foraAdm) why.push(`${x.foraAdm} com ${K.startLabel.toLowerCase()} depois do domingo`); if (x.foraDem) why.push(`${x.foraDem} encerrado(s) antes do domingo`); if (x.sobrando) why.push(`${x.sobrando} no app que não estão mais na planilha`); if (x.manual) why.push(`${x.manual} somado(s) por lançamento manual/aba Resumo`);
+      const diag = x.ok ? '<span class="chip ok">Igual à planilha</span>' : `<span class="chip warn">Diferença ${x.totalApp - x.linhas > 0 ? '+' : ''}${x.totalApp - x.linhas}</span> <span style="font-size:12px">${esc(why.join(' · ') || 'verificar')}</span>`;
+      return `<tr><td>${esc(x.w)}</td><td class="l"><b>${esc(x.label)}</b></td><td class="l" style="white-space:normal;min-width:300px">${diag}</td><td class="num">${x.linhas}</td><td class="num">${x.pend || ''}</td><td class="num">${x.faltando || ''}</td><td class="num">${x.app}</td><td class="num">${(x.foraAdm + x.foraDem) || ''}</td><td class="num">${x.ativos}</td><td class="num">${x.manual || ''}</td><td class="num"><b>${x.totalApp}</b></td></tr>`; }).join('')}
+    </tbody></table></div>`;
+  }
+  return html;
+}
 function renderAvisos(){
   Log.unread = 0; updateBadge();
   const ic = t => t === 'warn' ? '!' : t === 'err' ? '×' : t === 'ok' ? '✓' : 'i';
@@ -2420,6 +2470,7 @@ function renderAvisos(){
   $('#avisosBody').innerHTML = `
     <div class="card av-sec"><div class="card-h"><h3>Orientações atuais</h3><span class="hint">Atualizadas conforme os dados e os filtros de cada aba</span></div>
       ${cur.map(a => `<div class="av-item ${a.type}"><span class="ic">${ic(a.type)}</span><div>${lbl(a.kind)}${a.html || esc(a.msg)}</div></div>`).join('')}</div>
+    <div class="card av-sec"><div class="card-h"><h3>Conferência com a planilha</h3><span class="hint">Linhas da planilha × efetivo contado no app, por obra e semana, com o motivo de cada diferença</span><span class="sp"></span><button class="btn sm" data-sync="run">⟳ Ler planilha</button></div>${conferenciaHTML()}</div>
     <div class="card av-sec"><div class="card-h"><h3>Histórico de mensagens</h3><span class="hint">Últimas ${Log.items.length} mensagens exibidas pelo aplicativo neste navegador</span></div>
       ${Log.items.length ? Log.items.map(a => `<div class="av-item ${a.type || 'info'}"><span class="ic">${ic(a.type)}</span><div>${esc(a.msg)}</div><span class="tm">${new Date(a.t).toLocaleString('pt-BR')}</span></div>`).join('') : '<div class="muted" style="font-size:13px">Nenhuma mensagem registrada.</div>'}</div>`;
   $$('#avisosBody [data-basis]').forEach(b => { const box = b.closest('.av-item'); const kind = box && box.querySelector('.chip') && box.querySelector('.chip').textContent === 'Equipamentos' ? 'equip' : 'labor'; b.onclick = () => { UI.f[kind].basis = 'datas'; const sel = $(`#tab-${kind} [data-f=basis]`); if (sel) sel.value = 'datas'; switchTab(kind); }; });
