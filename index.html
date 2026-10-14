@@ -1735,7 +1735,7 @@ function analyzeResumo(grid, hdr, weekOverride, forceWeek){
     if (!errors.length) {
       const key = rec.semana + '|' + obraKey(rec.obra);
       if (seen.has(key)) errors.push({field: 'Obra/Semana', msg: `Duplicado na planilha (mesma obra e semana da linha ${seen.get(key)})`});
-      else { seen.set(key, row.n); res.existing = existing.get(key) || null; if (res.existing) res.changed = NUMK.some(k => (res.existing[k] ?? null) !== (rec[k] ?? null)); }
+      else { seen.set(key, row.n); res.existing = existing.get(key) || null; if (res.existing) res.changed = NUMK.some(k => rec[k] != null && (res.existing[k] ?? null) !== rec[k]); }   // célula vazia não altera o que já existe
     }
     out.push(res);
   }
@@ -1747,7 +1747,7 @@ function commitResumo(results){
   for (const r of results) {
     if (r.errors.length) continue;
     const key = r.rec.semana + '|' + obraKey(r.rec.obra); const ex = idx.get(key);
-    if (ex) { if (!r.changed) continue; NUMK.forEach(k => ex[k] = r.rec[k] ?? null); ex.updatedAt = now; updated++; }
+    if (ex) { if (!r.changed) continue; NUMK.forEach(k => { if (r.rec[k] != null) ex[k] = r.rec[k]; }); ex.updatedAt = now; updated++; }   // só substitui o que foi preenchido
     else { const n = {id: uid(), obra: r.rec.obra, semana: r.rec.semana, createdAt: now}; NUMK.forEach(k => n[k] = r.rec[k] ?? null); Repo.data.manual.push(n); idx.set(key, n); created++; }
   }
   return {created, updated};
@@ -1889,7 +1889,7 @@ function openImport(startKind, preWb, preName){
     const v = x => x == null ? '<span class="muted">—</span>' : fmtN(x);
     sum.innerHTML = `
       <div class="stat-row"><span class="chip info">${esc(st.source)} · aba “${esc(P.sheet)}”</span><span class="chip">${P.results.length} linha(s)</span><span class="chip ok">${valid.length} válida(s)</span><span class="chip err">${bad.length} pendente(s)</span><span class="chip or">${news.length} nova(s)</span><span class="chip warn">${upd.length} alterada(s)</span><span class="chip">${same.length} sem alteração</span></div>
-      <div class="alert info" style="font-size:12px">Os totais <b>complementam</b> os cadastros: em cada obra/semana, as categorias que já têm cadastros individuais continuam vindo dos cadastros; os valores desta aba preenchem apenas as que não têm. Linhas existentes da mesma obra e semana são atualizadas.</div>
+      <div class="alert info" style="font-size:12px">Os totais <b>complementam</b> os cadastros: em cada obra/semana, as categorias que já têm cadastros individuais continuam vindo dos cadastros; os valores desta aba preenchem apenas as que não têm. Se a obra/semana já existe no app, só os valores <b>preenchidos</b> na planilha substituem os atuais — células vazias mantêm o que já existe. Lançamentos que não estão na aba Resumo continuam no app.</div>
       ${upd.length ? `<div class="alert warn"><b>${upd.length} lançamento(s) existente(s) serão atualizados:</b> ${esc(upd.slice(0, 20).map(r => r.existing.obra + ' ' + r.existing.semana).join(' · '))}</div>` : ''}
       ${warns.length ? `<ul class="upd-list">${warns.slice(0, 100).join('')}</ul>` : ''}
       ${errs.length ? `<div style="font-weight:700;margin:8px 0 4px">Erros por linha e campo (${errs.length})</div><ul class="err-list">${errs.slice(0, 300).join('')}</ul>` : ''}
@@ -2038,7 +2038,7 @@ function buildResumo(){
   const sec = $('#tab-resumo');
   sec.innerHTML = `
   <div class="toolbar"><div><h2>Resumo</h2><div class="sub">Quantitativos por obra na semana de referência</div></div>
-    <div class="acts"><button class="btn" data-a="import">⇪ Importar planilha</button><button class="btn primary" data-a="manual">＋ Lançar totais sem detalhamento</button><button class="btn" data-a="excel">⊞ Exportar Excel</button><button class="btn dark" data-a="pdf">⎙ PDF</button></div></div>
+    <div class="acts"><button class="btn" data-a="import">⇪ Importar planilha</button><button class="btn" data-a="template">⬇ Modelo Excel</button><button class="btn primary" data-a="manual">＋ Lançar totais sem detalhamento</button><button class="btn" data-a="excel">⊞ Exportar Excel</button><button class="btn dark" data-a="pdf">⎙ PDF</button></div></div>
   <div class="card filters" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr))">
     <label>Obras<div data-ms="obras"></div></label>
     <label>Semana de referência<select data-week></select></label>
@@ -2046,7 +2046,7 @@ function buildResumo(){
     <div class="seg sub-tabs" style="align-self:end;margin:0"><button data-sub="tabela">Tabela</button><button data-sub="grafico">Gráfico geral</button></div>
   </div>
   <div data-body></div>
-  <div class="card"><div class="card-h"><h3>Lançamentos sem detalhamento</h3><span class="hint">Complementos por obra e semana — preenchem só as categorias sem cadastro individual</span></div><div data-manual-list></div></div>`;
+  <div class="card"><div class="card-h"><h3>Lançamentos sem detalhamento</h3><span class="hint">Complementos por obra e semana — preenchem só as categorias sem cadastro individual</span><span class="sp"></span><button class="btn sm" data-a="exresumo" title="Gera um Excel com a aba Resumo já preenchida com estes lançamentos, para colar na planilha">⬇ Exportar no formato da aba Resumo</button></div><div data-manual-list></div></div>`;
   UI.ms.resumo = MultiSelect($('[data-ms=obras]', sec), {all: 'Todas as obras', value: [], options: () => obraOptions(['labor', 'equip']), quick: [{l: 'Todas', fn: () => []}], onChange: v => { UI.resumo.obras = v; renderResumo(); }});
   $('[data-week]', sec).onchange = e => { UI.resumo.week = e.target.value; renderResumo(); };
   $('[data-rsit]', sec).onchange = e => { UI.resumo.sit = e.target.value; renderResumo(); };
@@ -2055,6 +2055,8 @@ function buildResumo(){
     const j = e.target.closest('[data-jr]'); if (j) { UI.resumo.jr = j.dataset.jr; renderResumo(); return; }
     const b = e.target.closest('[data-a]'); if (!b) return;
     if (b.dataset.a === 'import') openImport('labor');
+    else if (b.dataset.a === 'template') downloadTemplate();
+    else if (b.dataset.a === 'exresumo') exportResumoSheet();
     else if (b.dataset.a === 'manual') openManualForm();
     else if (b.dataset.a === 'excel') exportResumoExcel();
     else if (b.dataset.a === 'pdf') printResumo();
@@ -2175,7 +2177,7 @@ function downloadTemplate(){
     ['Total MO', 'Não', 'Use só quando não houver divisão por categoria (fica “Sem detalhamento”). Se as categorias forem preenchidas, vale a soma delas.'],
     ['Linha amarela, Linha branca, P. porte', 'Não', 'Números inteiros.'],
     ['Total equipamentos', 'Não', 'Use só quando não houver divisão por classificação.'],
-    ['Regra', '', 'Uma linha por obra e semana. Os valores complementam os cadastros: categorias que já têm cadastros individuais (abas MO/Equipamento) continuam vindo dos cadastros.'], []);
+    ['Regra', '', 'Uma linha por obra e semana. Os valores complementam os cadastros: categorias que já têm cadastros individuais (abas MO/Equipamento) continuam vindo dos cadastros.'], ['Regra', '', 'Obra/semana que não estiver nesta aba mantém o que já existe no app. Em linha já existente, célula vazia mantém o valor atual; para zerar, informe 0.'], []);
   ins.push(['Regras gerais'],
     ['Cada semana é uma fotografia: importar nova semana cria novos registros e preserva as anteriores.'],
     ['Reimportar a mesma obra/semana atualiza os cadastros (inclusive campos vazios) após confirmação, preservando a data inicial original.'],
@@ -2202,6 +2204,15 @@ function exportExcel(kind){
   const hs = XLSX.utils.aoa_to_sheet(histRows(kind, model)); hs['!cols'] = [{wch: 11}, {wch: 12}, {wch: 34}, {wch: 12}, {wch: 12}, {wch: 12}, {wch: 16}, {wch: 8}, {wch: 20}];
   XLSX.utils.book_append_sheet(wb, hs, 'Histograma semanal');
   XLSX.writeFile(wb, `histograma_${kind === 'labor' ? 'mao_de_obra' : 'equipamentos'}_${new Date().toISOString().slice(0, 10)}.xlsx`);
+}
+/** Exporta os lançamentos manuais no mesmo formato da aba “Resumo” da planilha de importação */
+function exportResumoSheet(){
+  if (!libsOk()) return toast('Biblioteca Excel não carregada.', 'err');
+  const R = UI.resumo; const ml = [...Repo.data.manual].filter(m => !R.obras.length || R.obras.includes(obraKey(m.obra))).sort((a, b) => a.semana.localeCompare(b.semana) || a.obra.localeCompare(b.obra, 'pt-BR'));
+  const aoa = [RESUMO_COLS.map(c => c.l), ...ml.map(m => [m.obra, m.semana, ...NUMK.map(k => m[k] == null ? '' : Number(m[k]))])];
+  const wb = XLSX.utils.book_new(); const ws = XLSX.utils.aoa_to_sheet(aoa); ws['!cols'] = RESUMO_COLS.map(c => ({wch: Math.max(10, c.l.length + 4)}));
+  XLSX.utils.book_append_sheet(wb, ws, 'Resumo'); XLSX.writeFile(wb, 'aba_Resumo_lancamentos.xlsx');
+  toast(`${ml.length} lançamento(s) exportado(s) no formato da aba Resumo.`, 'ok');
 }
 function exportResumoExcel(){
   if (!libsOk()) return toast('Biblioteca Excel não carregada.', 'err');
